@@ -1,0 +1,171 @@
+---
+title: "caret"
+author: "Siming Yan"
+date: "2/17/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(caret)
+library(tidyverse)
+library(xgboost)
+```
+
+```{r}
+attach(diamonds)
+df = diamonds
+```
+
+```{r}
+myControl <- trainControl(
+  method = "cv", 
+  number = 10,
+)
+
+tuneGrid <- data.frame(
+    alpha = seq(0, 1, length = 5),
+    lambda = seq(0.0001, 1, length = 20)
+)
+
+```
+
+
+# Prediction
+
+```{r}
+samplesize = 0.75 * nrow(df)
+set.seed(15)
+index = sample(nrow(df),size = samplesize)
+# creating training and test set
+df_train = df[index,]
+df_test = df[-index,]
+```
+
+## Linear Regression
+
+```{r}
+# From previous step
+
+# Fit random forest: model
+lr_model <- train(
+  price ~ .,
+  data = df_train, 
+  method = "glmnet",
+  tuneGrid = tuneGrid,
+  trControl = myControl
+)
+
+# Print model to console
+# tuneGrid
+# lr_model
+
+```
+
+```{r}
+plot(lr_model)
+lr_model$bestTune
+```
+
+```{r}
+pred_Price <- predict(lr_model, newdata = df_test)
+
+final <- as.data.frame(cbind(pred_Price, df_test$price))
+names(final) <- c("pred_Price","Price")
+
+ggplot(final, aes(x=pred_Price, y=Price)) +
+  geom_point(alpha=0.4, col ="grey") + 
+  geom_smooth(se = 0, method = "lm")
+
+
+```
+
+```{r}
+LR_RMSE <- sqrt(sum((final$pred_Price-final$Price)^2)/nrow(final))
+LR_RMSE
+```
+
+#--------------------------------------------
+
+```{r}
+library("Matrix")
+readsCount <- df_train
+readsCountSM <- as(as.matrix(readsCount), "dgCMatrix")
+MM = list(readsCountSM, df$price)
+train_data_xgb = xgb.DMatrix(readsCountSM, label = df_train$price) # dtrain
+
+dtest = xgb.DMatrix(as(as.matrix(df_test), "dgCMatrix"), label = df_test$price)
+# which(is.na(df_train))
+# xgb.DMatrix(df_train[, ! names(df_train) %in% c("price")], label = df_train$price)
+
+#--------------------------------------------
+set.seed(2)
+index = sample(nrow(df),size = .25*nrow(df))
+# creating training and test set
+df_pred_test = df[index,]
+df_pred_test_M = xgb.DMatrix(as(as.matrix(df_pred_test), "dgCMatrix"), label = df_pred_test$price)
+```
+
+```{r}
+watchlist <- list(eval = dtest, train = train_data_xgb)
+
+xgb = xgb.train(
+  params = list(max_depth=c(5,7,9)),
+  data = train_data_xgb,
+  nrounds = 20,
+  # watchlist = list(),
+  
+  # feval = NULL,
+  verbose = 1,
+  print_every_n = 1L,
+  early_stopping_rounds = 20,
+  # maximize = NULL,
+  # save_period = NULL,
+  save_name = "xgboost.model",
+  watchlist
+  # xgb_model = NULL
+)
+```
+
+```{r}
+xgb$best_score
+# (agaricus.train$data)
+
+```
+
+```{r}
+pred_lr = predict(lr_model, df_pred_test)
+
+```
+
+```{r}
+pred_XGB = predict(xgb, df_pred_test_M)
+out1 = cbind(df_pred_test$price, pred_XGB)
+out1$pred_lr = pred_lr
+
+rm(out1)
+```
+
+
+```{r}
+out1=out1 %>% data.frame()
+# pred_lr %>% length()
+out1$pred_lr = pred_lr
+
+names(out1)
+```
+
+
+# ggplot
+```{r}
+# ggplot(out1) + 
+#   aes(x = V1, y = pred_XGB) + 
+#   geom_point() 
+RMSE(out1$pred_XGB, out1$V1)
+RMSE(out1$pred_lr, out1$V1)
+```
+#--------------------------------------------
+# xgb win!

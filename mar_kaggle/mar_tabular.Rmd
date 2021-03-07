@@ -1,0 +1,473 @@
+---
+title: "kaggle_3"
+author: "Siming Yan"
+date: "2/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+<!-- ## R Markdown -->
+ 
+
+```{r cars, message = F, warning = F}
+
+library(caret)
+library(tidyverse)
+library(xgboost)
+library("Matrix")
+```
+
+```{r}
+train_data = read.csv("./encoded_train.csv")
+tests_data = read.csv("./encoded_test.csv")
+train_y    = read.csv("./trian_y.csv")
+sub = read.csv("./sample_submission.csv")
+```
+
+```{r}
+View(train_data %>% head())
+```
+
+```{r}
+cols.cat <- paste0("cat", c(0:18))
+train_data[cols.cat] <- lapply(train_data[cols.cat], as.factor)
+# delete survived
+tests_data[cols.cat] <- lapply(tests_data[cols.cat], as.factor)
+# train = train_data
+# train_data = train
+# tests = tests_data
+#--------------------------------------------
+set.seed(9111)
+index = sample(c(1:300000), .75*300000)
+samplesize = 0.75 * nrow(train_data)
+# index0 = sample(nrow(train_data),size = samplesize)
+
+train_df  = train_data[index, ]
+train_label = train_y[index, ]
+valid_df  = train_data[-index, ] 
+valid_label = train_y[-index, ]
+```
+
+```{r}
+train_data_xgb = xgb.DMatrix(as(as.matrix(train_df), "dgCMatrix"), 
+                             label = train_label) # dtrain
+valid_data_xgb = xgb.DMatrix(as(as.matrix(valid_df), "dgCMatrix"), 
+                             label = valid_label)
+test_data_xgb  = xgb.DMatrix(as(as.matrix(tests_data), "dgCMatrix"),
+                             label = rep(0, dim(tests_data)[1]) %>% as.factor())
+```
+
+```{r}
+# library(parallel)
+# library(parallelMap) 
+# parallelStartSocket(cpus = detectCores())
+```
+
+# xgboosting with xgb
+
+```{r}
+watchlist <- list(eval = valid_data_xgb, train = train_data_xgb)
+
+xgb = xgb.train(
+  params = list(max_depth=c(7, 9, 11, 13, 15),
+                eta = c(.01, .1, 1),
+                subsample = .75,
+                # sampling_method = "gradient_based", 
+                # lambda = c(.25, .5, .75, 1),
+                # gamma = c(0, 0.25, 0.5),
+                eval_metric = 'auc', 
+                # alpha = c(.25, .5, .75, 1),
+                # max_bin = 1024
+                n_estimators = c(200, 400, 700, 1000)
+                ),
+  # booster=dart,
+  objective = "reg:logistic",
+  data = train_data_xgb,
+  nrounds = 250,
+  verbose = 1,
+  print_every_n = 3L,
+  early_stopping_rounds = 20,
+  save_name = "xgboost.model",
+  watchlist
+  # xgb_model = NULL
+)
+```
+
+
+```{r}
+xgb$best_msg
+# "[150]\teval-auc:0.876067\ttrain-auc:0.885645" ongoing up!
+xgb.save(xgb, "./XGB_xgboost.model")
+```
+
+```{r}
+pred_XGB = predict(xgb, test_data_xgb)
+sub$target =pred_XGB
+write.csv(sub, "./submission_R_XGB.csv", index = F)
+```
+
+
+```{r}
+mat <- xgb.importance (feature_names = colnames(train_data),model = xgb)
+xgb.plot.importance (importance_matrix = mat[1:20]) 
+```
+
+#--------------------------------------------
+## caret tune
+
+```{r}
+library(caret)
+train_data %>% dim # [1] 300000     30
+train_y %>% dim #  300000
+
+x_train = train_data
+y_train = train_y$target %>% as.factor()
+```
+
+```{r}
+normalizedGini <- function(aa, pp) {
+    Gini <- function(a, p) {
+        if (length(a) !=  length(p)) stop("Actual and Predicted need to be equal lengths!")
+        temp.df <- data.frame(actual = a, pred = p, range=c(1:length(a)))
+        temp.df <- temp.df[order(-temp.df$pred, temp.df$range),]
+        population.delta <- 1 / length(a)
+        total.losses <- sum(a)
+        null.losses <- rep(population.delta, length(a)) # Hopefully is similar to accumulatedPopulationPercentageSum
+        accum.losses <- temp.df$actual / total.losses # Hopefully is similar to accumulatedLossPercentageSum
+        gini.sum <- cumsum(accum.losses - null.losses) # Not sure if this is having the same effect or not
+        sum(gini.sum) / length(a)
+    }
+    Gini(aa,pp) / Gini(aa,aa)
+}
+
+# create the normalized gini summary function to pass into caret
+giniSummary <- function (data, lev = "Yes", model = NULL) {
+    levels(data$obs) <- c('0', '1')
+    out <- normalizedGini(as.numeric(levels(data$obs))[data$obs], data[, lev[2]])  
+    names(out) <- "NormalizedGini"
+    out
+}
+
+# create the training control object. Two-fold CV to keep the execution time under the kaggle
+# limit. You can up this as your compute resources allow. 
+trControl = trainControl(
+    method = 'cv',
+    number = 5,
+    # summaryFunction = giniSummary,
+    classProbs = TRUE,
+    verboseIter = TRUE,
+    allowParallel = TRUE)
+
+# create the tuning grid. Again keeping this small to avoid exceeding kernel memory limits.
+# You can expand as your compute resources allow. 
+# tune_grid <- expand.grid(
+#   nrounds = seq(from = 200, to = nrounds, by = 50),
+#   eta = c(0.025, 0.05, 0.1, 0.3),
+#   max_depth = c(2, 3, 4, 5, 6),
+#   gamma = 0,
+#   colsample_bytree = 1,
+#   min_child_weight = 1,
+#   subsample = 1
+# )
+tuneGridXGB <- expand.grid(
+    nrounds = c(10),
+    max_depth = c(12),
+    eta = c(0.05, 0.1),
+    gamma = c(0.01),
+    colsample_bytree = c(0.75),
+    subsample = c(0.750),
+    min_child_weight = c(0))
+```
+
+```{r}
+caret_tune_data = cbind(x_train, y_train)
+cat_col = (caret_tune_data %>% names())[1:19]
+caret_tune_dada = fastDummies::dummy_cols(caret_tune_data, select_columns = cat_col)
+caret_tune_dada = caret_tune_dada[, 20:ncol(caret_tune_dada)]
+# caret_tune_fi = caret_tune_dada %>% data.frame() %>% cbind(caret_tune_data[,20:30])
+
+levels(y_train) <- c("No", "Yes")
+caret_tune_dada = caret_tune_dada[, !(names(caret_tune_dada) %in% "y_train")]
+caret_tune_dada %>% str()
+#--------------------------------------------
+caret_test_dada = fastDummies::dummy_cols(tests_data, select_columns = cat_col)
+caret_test_dada = caret_test_dada[, 20:ncol(caret_test_dada)]
+```
+
+```{r}
+library(doParallel)
+cl <- makePSOCKcluster(8)
+registerDoParallel(cl)
+# save.image("./based_tune_caret.RData")
+```
+
+```{r}
+start <- Sys.time()
+
+# train the xgboost learner
+xgbmod <- train(
+    x = caret_tune_dada,
+    y = y_train,
+    method = 'xgbTree',
+    metric = "roc",
+    # metric = 'NormalizedGini',
+    trControl = trControl,
+    tuneGrid = tuneGridXGB,
+    verbose = T)
+
+
+print(Sys.time() - start)
+
+```
+
+```{r}
+rm_test = names(caret_test_dada)[!names(caret_test_dada) %in% names(caret_tune_dada)]
+ad_test = names(caret_tune_dada)[!names(caret_tune_dada) %in% names(caret_test_dada)]
+
+caret_test_dada = caret_test_dada[, !names(caret_test_dada) %in% rm_test]
+#--------------------------------------------
+
+ad_test %>% length
+caret_test_dada %>% dim
+dfbind = do.call(data.frame, replicate(12, rep(0, 200000), simplify=FALSE))
+names(dfbind) = ad_test
+caret_test_dada = cbind(caret_test_dada, dfbind)
+caret_test_dada2 = caret_test_dada[,names(caret_tune_dada)]
+#--------------------------------------------
+preds <- predict(xgbmod, newdata = caret_test_dada2, type = "prob")
+
+```
+
+
+```{r}
+preds %>% head()
+sub$target = preds$Yes
+write.csv(sub, "./sub_xgb_untune_method1.csv")
+# write.csv(sub, "./submission_R_XGB.csv", index = F)
+```
+
+#--------------------------------------------
+
+## caret tune 2
+
+```{r}
+# input_x <- as.matrix(select(tr_treated, -SalePrice_clean))
+# input_y <- tr_treated$SalePrice_clean
+
+input_x <- as.matrix(caret_tune_dada)
+input_y <- y_train
+```
+
+
+```{r}
+# run with default paras 
+grid_default <- expand.grid(
+  nrounds = 10,
+  max_depth = 6,
+  eta = 0.3,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+train_control <- caret::trainControl(
+  method = "none",
+  verboseIter = F, # no training log
+  allowParallel = TRUE # FALSE for reproducible results 
+)
+
+xgb_base <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = train_control,
+  tuneGrid = grid_default,
+  method = "xgbTree",
+  verbose = TRUE
+)
+ 
+```
+
+#--------------------------------------------
+# Grid Search
+
+## 1. Number of Iterations and the Learning Rate
+
+```{r}
+nrounds = 200
+# note to start nrounds from 200, as smaller learning rates result in errors so
+# big with lower starting points that they'll mess the scales
+tune_grid <- expand.grid(
+  nrounds = seq(from = 100, to = nrounds, by = 50),
+  eta = c(0.025, 0.05, 0.1, 0.3),
+  max_depth = c(4, 5, 6),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+tune_control <- caret::trainControl(
+  method = "cv", # cross-validation
+  number = 3, # with n folds 
+  #index = createFolds(tr_treated$Id_clean), # fix the folds
+  verboseIter = FALSE, # no training log
+  allowParallel = TRUE # FALSE for reproducible results 
+)
+
+xgb_tune <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = tune_grid,
+  method = "xgbTree",
+  verbose = TRUE
+)
+```
+
+
+```{r}
+# helper function for the plots
+tuneplot <- function(x, probs = .90) {
+  ggplot(x) +
+    coord_cartesian(ylim = c(quantile(x$results$RMSE, probs = probs), min(x$results$RMSE))) +
+    theme_bw()
+}
+
+tuneplot(xgb_tune)
+```
+
+## 2: Maximum Depth and Minimum Child Weight
+
+```{r}
+tune_grid2 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = xgb_tune$bestTune$eta,
+  max_depth = ifelse(xgb_tune$bestTune$max_depth == 2,
+    c(xgb_tune$bestTune$max_depth:4),
+    xgb_tune$bestTune$max_depth - 1:xgb_tune$bestTune$max_depth + 1),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = c(1, 2, 3),
+  subsample = 1
+)
+
+xgb_tune2 <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = tune_grid2,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+tuneplot(xgb_tune2)
+```
+
+## 3. Column and Row Sampling
+Based on this, we can fix minimum child weight to 3 and maximum depth to 3. Next, we’ll try different values for row and column sampling:
+
+```{r}
+tune_grid3 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = c(0.4, 0.6, 0.8, 1.0),
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = c(0.5, 0.75, 1.0)
+)
+
+xgb_tune3 <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = tune_grid3,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+tuneplot(xgb_tune3, probs = .95)
+```
+
+## 4. Gamma
+
+```{r}
+tune_grid4 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0),
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+
+xgb_tune4 <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = tune_grid4,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+tuneplot(xgb_tune4)
+```
+
+## 5: Reducing the Learning Rate
+Now, we have tuned the hyperparameters and can start reducing the learning rate to get to the final model:
+
+```{r}
+tune_grid5 <- expand.grid(
+  nrounds = seq(from = 600, to = 10000, by = 100),
+  eta = c(0.01, 0.015, 0.025, 0.05, 0.1),
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = xgb_tune4$bestTune$gamma,
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+
+xgb_tune5 <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = tune_grid5,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+tuneplot(xgb_tune5)
+
+```
+
+## fit the model with best paras
+
+```{r}
+(final_grid <- expand.grid(
+  nrounds = xgb_tune5$bestTune$nrounds,
+  eta = xgb_tune5$bestTune$eta,
+  max_depth = xgb_tune5$bestTune$max_depth,
+  gamma = xgb_tune5$bestTune$gamma,
+  colsample_bytree = xgb_tune5$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune5$bestTune$min_child_weight,
+  subsample = xgb_tune5$bestTune$subsample
+))
+```
+
+```{r}
+(xgb_model <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = train_control,
+  tuneGrid = final_grid,
+  method = "xgbTree",
+  verbose = TRUE
+))
+```
+

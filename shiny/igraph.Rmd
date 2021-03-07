@@ -1,0 +1,235 @@
+---
+title: "igraph"
+author: "Siming Yan"
+date: "2/7/2021"
+output: html_document
+---
+
+ 
+ 
+```{r}
+library(igraph)
+library(geomnet)
+library(tidyverse)
+```
+
+
+```{r}
+df <- read.csv("./rr.csv")
+df = df[,-4]
+
+```
+
+```{r}
+colnames(df) <- c("from", "to", "weight")
+df$weight %>% round(-1) %>% unique()
+```
+
+
+```{r}
+df2 = df
+
+df[,1] %>% unique %>% length()
+df2$from = df$from %>% round(-5)
+df2$to = df$to %>% round(-5)
+```
+```{r}
+df2$to = df2$to %>% as.factor()
+df2$from = df2$from %>% as.factor()
+```
+
+```{r}
+colnames(df2) =  c("tag1", "tag2", "weight")
+df3 = merge(df, df2, by = "weight")
+df3
+```
+```{r}
+tagframe1 = (df3 %>% group_by(tag1) %>% summary(df3$from))[,5] %>% data.frame()
+names(tagframe1) = 'a'
+tagframe1 = separate(tagframe1, col = 'a', into = c('b', 'c'), sep = ':')
+names(tagframe1) = c('tag1', 'c')
+tagframe1
+
+#--------------------------------------------
+cat(append(df3$from[2], (df3$from[4])))
+ 
+
+#--------------------------------------------
+for (i in df3$tag1){
+  # df3$tagtag[i] = 
+    append("", df3$from[i])
+  
+}
+```
+
+
+```{r}
+g <- graph_from_data_frame(df3[,4:5], directed = FALSE)
+g
+```
+
+
+
+
+```{r}
+lc <- cluster_louvain(g)
+membership(lc)
+communities(lc)
+plot(lc, g, vertex.label=c(df3$from))
+```
+
+
+```{r }
+# Infomap
+imc <- cluster_infomap(g)
+membership(imc)
+communities(imc)
+plot(lc, g, vertex.label=c(df3$from, df3$to), position = "dodge")
+```
+
+ 
+
+<!-- #-------------------------------------------- -->
+
+
+```{r}
+df$from = (df$from %>% as.factor())
+df$to = (df$to %>% as.factor())
+
+```
+
+```{r}
+g0 <- graph_from_data_frame(df, directed = FALSE)
+g0
+```
+
+```{r}
+lc0 <- cluster_louvain(g0)
+membership(lc0)
+communities(lc0)
+plot(lc0, g0, vertex.label=c(df$from), position = 'dodge')
+```
+
+```{r}
+data = (iris)
+data
+```
+
+```{r}
+iris$Species %>% table
+
+library(MASS)
+lda(Species ~ ., 
+    iris,
+    prior = c(1,1,1)/3)
+```
+
+```{r}
+library(tidyverse)
+data("CO2")
+CO2[85, ] = CO2[84, ]
+CO2$Treatment[85] = "chilled"
+CO2
+factor(CO2$Treatment, levels = c('nonchilled', 'chilled'))
+model.matrix(~ conc + Treatment -1, CO2) %>% head()
+
+
+
+express_rec <- express_rec[,!names(express_rec) %in% "gene"]
+```
+
+<!-- #-------------------------------------------- -->
+
+#feb 12 yinduo.
+
+```{r}
+library(limma)
+library(BiocManager)
+# BiocManager::install("edgeR")
+library(tidyverse)
+library(edgeR)
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install()
+```
+
+```{r}
+express_rec <- read.csv("./PRAD/EXPR.csv", headers <- T)#读取表达矩阵;
+group_text <- read.csv("./PRAD/label.csv", headers <- T)#读取分组矩阵；
+```
+
+```{r}
+express_rec %>% dim()
+group_text %>% dim()
+express_rec %>% head(15)
+
+express_rec = express_rec[-which(duplicated(express_rec$gene) == T),]
+group_text = group_text[-which(duplicated(group_text$ID) == T),]
+```
+
+```{r}
+
+tb1 = express_rec[,1] # gene names
+tb2 = group_text[,1]
+rownames(group_text) <- group_text[,1]
+group_text <- group_text[c(-1)]
+group_text
+# express_rec = express_rec_save
+```
+
+```{r}
+Group <- factor(group_text$group, levels = c('Tumor','Normal'))
+Group
+design <- model.matrix(~0+Group)
+design %>% dim
+colnames(design) <- c('Tumor','Normal')
+rownames(design) <- rownames(group_text)#创建分组矩阵；
+#--------------------------------------------
+
+rownames(express_rec) <- express_rec[,1]
+express_rec <- express_rec[(-1)]#创建表达矩阵；
+express_rec[express_rec == 0] <- 1
+express_rec <-log(express_rec,2)
+fit <- lmFit(express_rec, design)
+
+
+express_rec %>% head()
+# contrast.matrix
+```
+
+```{r}
+contrast.matrix <- makeContrasts(Tumor - Normal, levels = design)
+fit2 <- contrasts.fit(fit, contrast.matrix)
+
+fit2 = eBayes(fit2)
+
+all_diff <- topTable(fit2, adjust.method = 'fdr',
+                   coef = 1,
+                   p.value = 1,
+                   lfc = log(1,2), 
+                   number = 30000, 
+                   sort.by = 'logFC') #从高到低排名；
+
+#--------------------------------------------
+
+dge <- DGEList(counts = express_rec)
+dge <- calcNormFactors(dge)
+v <- voom(dge, design, plot = T)
+fit <- lmFit(v, design)
+fit <- eBayes(fit)
+all = topTable(fit, coef = ncol(design), n = Inf)
+
+#--------------------------------------------
+
+sig.limma <- subset(all_diff, abs(all$logFC) > 1.5 & 
+                      all$P.Value<0.05)#进行差异基因筛选；
+
+write.csv(sig.limma,'limm_diff.csv') #写入csv文件中；
+write.csv(all_diff,'limm_rec.csv')
+
+sig.limma
+all_diff
+
+express_rec %>% head()
+```
+

@@ -1,0 +1,155 @@
+---
+title: "plotly"
+author: "Siming Yan"
+date: "2/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+ # 127.0.0.1:8050
+```
+
+
+```{r}
+library(plotly)
+library(praise)
+fig <- plot_ly(
+  type = "scatter",
+  x = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), 
+  y = c(28.8, 28.5, 37, 56.8, 69.7, 79.7, 78.5, 77.8, 74.1, 62.6, 45.3, 39.9), 
+  mode = "markers+lines") 
+fig <- fig %>%
+  layout(
+    xaxis = list(
+      dtick = 0.75,  # interval
+      tick0 = 0.5,  # start point
+      tickmode = "linear"
+  ))
+
+# fig
+# --------------------------------------------
+
+
+diamonds %>%
+  plot_ly() %>% 
+  add_histogram(x = ~cut)
+
+p <- plot_ly(diamonds2, x = ~cut, color = ~clarity, colors = "Accent")
+p# plotly_json(p)
+b <- plotly_build(p)
+
+# Confirm there 8 traces
+length(b$x$data) %>% smyan
+#> [1] 8
+
+# Extract the `name` of each trace. plotly.js uses `name` to 
+# populate legend entries and tooltips
+purrr::map_chr(b$x$data, "name")
+#> [1] "IF" "VVS1" "VVS2" "VS1" "VS2" "SI1" "SI2" "I1" 
+
+# Every trace has a type of histogram
+unique(purrr::map_chr(b$x$data, "type"))
+diamonds$cut %>% unique %>% smyan
+praise()
+```
+ 
+```{r}
+p <- ggplot(diamonds, aes(x=clarity, y=log(price), color=clarity)) +
+    ggforce::geom_sina(alpha = 0.1) + 
+    stat_summary(fun.data = "mean_cl_boot", color = "black") +
+    facet_wrap(~cut)
+
+# WebGL is a lot more efficient at rendering lots of points # Hmisc
+toWebGL(ggplotly(p))
+p
+
+#--------------------------------------------
+
+p <- ggplot(diamonds, aes(x = log(price), color = clarity)) + 
+    geom_freqpoly(stat = "density") 
+    # facet_wrap(~cut)
+ggplotly(p)
+
+#--------------------------------------------
+
+library(GGally)
+m <- lm(log(price) ~ log(carat) + cut, data = diamonds)
+gg <- ggcoef(m)
+# dynamicTicks means generate new axis ticks on zoom
+ggplotly(gg, dynamicTicks = TRUE) # coef plot.
+
+
+
+
+library(naniar)
+# fake some missing data
+ 
+diamonds$price_miss <- ifelse(diamonds$depth > 60, diamonds$price, NA)
+p <- ggplot(diamonds, aes(x = clarity, y = log(price_miss))) +
+    geom_miss_point(alpha = 0.2) + 
+    # ggforce::geom_sina(alpha = 0.1) + 
+    stat_summary(fun.data = "mean_cl_boot", colour = "black") +
+    facet_wrap(~cut)
+toWebGL(ggplotly(p))
+# p
+```
+ 
+```{r}
+
+data(economics, package = "ggplot2")
+
+# sort economics by psavert, just to 
+# show difference between paths and lines
+p <- economics %>%
+  arrange(psavert) %>%
+  plot_ly(x = ~date, y = ~psavert,
+          head)
+
+# add_paths(p)
+add_lines(p)
+
+
+
+```
+ 
+```{r}
+# set.seed(99)
+plot_ly() %>%
+ add_trace(
+   type = "scatter",
+   mode = "markers+lines+text",
+   x = 3:7, 
+   y = 10:14,
+   text = replicate(5, praise::praise()),
+   textposition = "right",
+   hoverinfo = "text",
+   textfont = list(family = "Roboto Condensed", size = 16)
+ ) %>% 
+  add_histogram(data = diamonds2, 
+                x = ~z,
+                color = ~clarity,
+                colors = "Accent") %>% 
+  layout(xaxis = list(range = c(3, 8)))
+```
+ 
+ 
+ 
+ 
+```{r, warning  = F}
+library(dplyr)
+diamonds %>% dim
+diamonds$price_miss <- ifelse(diamonds$depth > 60, diamonds$price, NA)
+diamonds2 =sample_n(diamonds, 500)
+diamonds2
+
+
+ggplot(diamonds2, aes(x = clarity, y = log(price_miss))) +
+    geom_miss_point(alpha = 0.7) + 
+    stat_summary(fun.data = "mean_cl_boot", colour = "black", alpha = .1) +
+    facet_wrap(~cut, labeller = labeller(cut = kab)) 
+kab = replicate(5,praise())
+names(kab) = replicate(5,praise())
+kab
+```
+ 
+ 

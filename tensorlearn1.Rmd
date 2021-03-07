@@ -1,0 +1,59 @@
+---
+title: "tensor"
+author: "Siming Yan"
+date: "1/17/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE
+                      )
+# knitr::opts_chunk$set
+```
+
+## R Markdown
+
+```{r cars}
+library(tensorflow)
+# install_tensorflow(version = "nightly")      # cpu version
+# install_tensorflow(version = "nightly-gpu")  # gpu version
+```
+
+## Including Plots
+
+```{r p1, echo=FALSE}
+# Create your session
+library(tensorflow)
+sess <- tf$Session()
+
+# Define a constant (you'll learn this next!)
+HiThere <- tf$constant('Hi DataCamp Student!')
+
+# Run your session with the HiThere constant
+print(sess$run(HiThere))
+
+# Close the session
+sess$close()
+```
+
+
+```{r}
+library(tidyverse)
+n = 1:100
+n
+for (i in n){
+  (500+i)*(100-i)
+  # print(i)
+}
+
+si = function(i){(500+i)*(100-i)}
+optimize(si, interval=c(1, 150), maximum=TRUE)
+
+501*99
+
+rnorm(100, 2.5, 1)
+set.seed(2)
+sample(rnorm(100, 2.5, 1), 3)
+
+```
+

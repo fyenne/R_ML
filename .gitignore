@@ -37,3 +37,18 @@ vignettes/*.pdf
 
 # R Environment Variables
 .Renviron
+
+*.DS_Store
+*.RDataTmp
+*.RData
+*.txt
+*.rds
+*.csv
+*.html
+*.xlsx
+*.Rproj
+
+
+h2o_GLM/
+h2o_rf.H2OModel/
+

@@ -1,0 +1,453 @@
+---
+title: "LGBM"
+author: "Siming Yan"
+date: "2/21/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+# c(df_train_d %>% dim,
+#   df_valid_d %>% dim,
+#   df_test_d  %>% dim)
+```
+
+# light gbm
+
+```{r}
+
+# library(h2o)
+
+# data(agaricus.train, package='lightgbm')
+# train  <- agaricus.train
+# dtrain <- lgb.Dataset(train$data, label = train$label)
+# model  <- lgb.cv(
+#     params = list(objective = "regression", metric = "l2"), data = dtrain)
+```
+
+```{r}
+library(lightgbm)
+library(mlr)
+library(gbm)
+# regr.gbm
+# regr.h2o.gbm
+# Needed packages  
+library(tidymodels)   # packages for modeling and statistical analysis
+library(tune)         # For hyperparemeter tuning
+library(workflows)    # streamline process
+library(tictoc)       # for timimg
+library(data.table)
+library(Matrix)
+library(dplyr)
+library(MLmetrics)
+library(lightgbm)
+```
+
+```{r}
+# data sumary
+# skimr::skim(df_train_d) 
+
+# Split data into train and test data and create resamples for tuning
+set.seed(2021)
+# train_test_split_data <- initial_split(data_in_scope)
+# data_in_scope_train <- training(train_test_split_data)
+# data_in_scope_test <-  testing(train_test_split_data)
+# create resammples
+
+# split = KFold(n_splits=5, random_state=2)
+# mlr::makeResampleDesc
+```
+
+
+```{r}
+df_train_d_ma = Matrix(as.matrix(df_train_d), sparse = TRUE)
+df_valid_d_ma = Matrix(as.matrix(df_valid_d), sparse = TRUE)
+df_test_d_ma  = Matrix(as.matrix(df_test_d ), sparse = T)
+
+dtrain_lgb <- lgb.Dataset(df_train_d_ma, label = d_train_y)
+dvalid_lgb <- lgb.Dataset(df_valid_d_ma, label = d_valid_y)
+folds <- vfold_cv(df_train_d, v = 10, repeats = 2)
+
+
+dtest <- lgb.Dataset.create.valid(dtrain_lgb, df_valid_d_ma, label = d_valid_y)
+valids <- list(test = dtest)
+valids$test
+
+
+
+lgbm_params = list(max_depth = 16,
+                subsample = 0.8032697250789377,
+                colsample_bytree = 0.21067140508531404,
+                learning_rate = 0.009867383057779643,
+                reg_lambda = 10.987474846877767,
+                reg_alpha = 17.335285595031994,
+                min_child_samples = 31,
+                num_leaves = 66,
+                max_bin = 522,
+                cat_smooth = 81,
+                cat_l2 = 0.029690334194270022,
+                metric = "mae",
+                n_jobs = 8,
+                n_estimators = 20000)
+```
+
+```{r}
+# depricated
+lgb.model.cv = lgb.cv(params = lgb.grid,
+                      obj = "regression",
+                      data = dtrain_lgb, 
+                      learning_rate = 0.02, num_leaves = 25,
+                      num_threads = 2 , nrounds = 531, 
+                      early_stopping_rounds = 10,
+                      eval_freq = 20, 
+                      eval = "mae",
+                      nfold = 10
+                      )
+
+#[1] "[150]\teval-mae:0.709083\ttrain-mae:0.657100"
+
+```
+
+```{r}
+# depricated
+lgb.model.cv$best_score
+lgb.model.cv$best_iter
+```
+
+```{r}
+lgb.model_final = lgb.train(params = lgbm_params, 
+                            obj = "regression",
+                            data = dtrain_lgb,
+                            valids = valids,
+                            early_stopping_rounds = 20
+                            )
+
+
+
+lgb.model_final$best_iter
+lgb.model_final$best_score # 0.7009207
+```
+
+```{r}
+
+target_lgb = predict(lgb.model_final, df_test_d_ma)
+
+sub$target = target_lgb
+write.csv(sub, "./submission_R_lgbm.csv")
+saveRDS(lgb.model_final, "./lgb.model_final.rds")
+```
+
+#--------------------------------------------
+
+# tune lgbm method1
+
+
+```{r}
+grid_search <- expand.grid(Depth = 2:8,
+                           L1 = 0:5,
+                           L2 = 0:5)
+
+model <- list()
+perf <- numeric(nrow(grid_search))
+
+for (i in 1:nrow(grid_search)) {
+  model[[i]] <- lgb.train(list(objective = "regression",
+                          metric = "l2",
+                          lambda_l1 = grid_search[i, "L1"],
+                          lambda_l2 = grid_search[i, "L2"],
+                          max_depth = grid_search[i, "Depth"]),
+                     dtrain,
+                     2,
+                     valids,
+                     min_data = 1,
+                     learning_rate = 1,
+                     early_stopping_rounds = 5)
+  perf[i] <- min(rbindlist(model[[i]]$record_evals$test$l2))
+}
+grid_search
+cat("Model ", which.min(perf), " is lowest loss: ", min(perf), sep = "","\n")
+print(grid_search[which.min(perf), ])
+```
+
+```{r}
+if (!require("pacman")) install.packages("pacman")
+## 
+# speed up computation with parallel processing
+library(doParallel)
+all_cores <- parallel::detectCores(logical = FALSE)
+registerDoParallel(cores = all_cores)
+
+```
+
+
+```{r}
+cat("
+-----------------------------------------------------------------------------------
+               Step 3: Estimate approx time 
+-----------------------------------------------------------------------------------
+- For the grid specified above, total number of models that needs to run are 2160
+- Next is to specify nrounds. 
+
+Calculation:
+- Number of models: 		2160
+- nrounds:					5
+- Runtime for each model: 	60 seconds (estimated based on full data)
+  Estimated total time:	    2160 * 60 = 129600 secs ~ 36 hours 
+
+- Try changing the params and/or ranges and get convenient estimated time. After that,
+  simply run the code chunk below with with your choice of grid search.
+")
+#--------------------------------------------
+# lgbm_params = list(max_depth = 16,
+#                 subsample = 0.8032697250789377,
+#                 colsample_bytree = 0.21067140508531404,
+#                 learning_rate = 0.009867383057779643,
+#                 reg_lambda = 10.987474846877767,
+#                 reg_alpha = 17.335285595031994,
+#                 min_child_samples = 31,
+#                 num_leaves = 66,
+#                 max_bin = 522,
+#                 cat_smooth = 81,
+#                 cat_l2 = 0.029690334194270022,
+#                 metric = "mae",
+#                 n_jobs = 8,
+#                 n_estimators = 20000)
+#--------------------------------------------
+
+# sample grid search for illustration purpose only.
+grid_search <- expand.grid(
+  learning_rate     = c(0.1, 0.015, 0.01),
+  num_leaves        = c(11, 16, 21),
+  max_depth         = c(13, 16),
+  subsample         = c(.8: 0.81)
+  # colsample_bytree  = c(.5, 0.7),
+  # min_child_weight  = c(0),
+  # scale_pos_weight  = c(100),
+  # L1 = c(0:5),
+  # L2 = c(0:5)
+)
+
+cat("Total # of models with REDUCED configuration: ", nrow(grid_search) , "\n")
+
+model <- list()
+perf <- numeric(nrow(grid_search))
+```
+
+
+```{r}
+tic("total time for grid search: ")
+for (i in 1:nrow(grid_search)) {
+  cat("Model ***", i , "*** of ", nrow(grid_search), "\n")
+  model[[i]] <- lgb.train(
+  	  list(
+  	     objective         = "regression",
+	       metric            = "mae",
+	       learning_rate     = grid_search[i, "learning_rate"],
+	       # min_child_samples = 100,
+	       # max_bin           = 100,
+	       # subsample_freq    = 1,
+	       num_leaves        = grid_search[i, "num_leaves"],
+	       max_depth         = grid_search[i, "max_depth"]
+	       # subsample         = grid_search[i, "subsample"],
+	       # colsample_bytree  = grid_search[i, "colsample_bytree"],
+	       # min_child_weight  = grid_search[i, "min_child_weight"],
+	       # scale_pos_weight  = grid_search[i, "scale_pos_weight"],
+  	     # L1  = grid_search[i, "L1"],
+  	     # L2  = grid_search[i, "L2"]
+  	     ),
+	  data    = dtrain_lgb,
+	  valids  = list(validation = dvalid_lgb),
+	  # nthread = 4, 
+	  nrounds = 5, # increase/ decrease rounds
+	  verbose = 1, 
+	  early_stopping_rounds = 6
+	)
+  perf[i] <- max(unlist(model[[i]]$record_evals[["validation"]][["mae"]][["eval"]]))
+  invisible(gc()) # free up memory after each model run
+}
+toc()
+ 
+#                       obj = "regression",
+#                       data = dtrain_lgb, 
+#                       learning_rate = 0.02, num_leaves = 25,
+#                       num_threads = 2 , nrounds = 2000, 
+#                       early_stopping_rounds = 10,
+#                       eval_freq = 20, 
+#                       eval = "mae",
+#                       nfold = 10
+```
+
+
+```{r}
+cat("
+-----------------------------------------------------------------------------------
+               Step 4: Print grid search result of best params
+-----------------------------------------------------------------------------------
+")
+
+# grid_search result
+cat("Model ", which.max(perf), " is max AUC: ", max(perf), sep = "","\n")
+best_params = grid_search[which.max(perf), ]
+fwrite(best_params,"best_params_for_sample_data.txt")
+
+cat("Best params within chosen grid search: ", "\n")
+t(best_params)
+
+perf
+```
+
+# tune 2
+
+```{r}
+# speed up computation with parallel processing
+library(doParallel)
+all_cores <- parallel::detectCores(logical = FALSE)
+registerDoParallel(cores = all_cores)
+# data 
+library(AmesHousing)
+# data cleaning
+library(janitor)
+# data prep
+library(dplyr)
+# visualisation
+library(ggplot2)
+# tidymodels
+library(rsample)
+library(recipes)
+library(parsnip)
+library(tune)
+library(dials)
+library(workflows)
+library(yardstick)
+library(treesnip)
+```
+
+
+```{r}
+# set the random seed so we can reproduce any simulated results.
+set.seed(1234)
+# load the housing data and clean names
+# ames_data <- make_ames() %>% janitor::clean_names()
+train_lgbm_tune = train_data[,! names(train_data) %in% c("id")]
+
+ames_split <- rsample::initial_split(train_lgbm_tune,
+                                     prop = 0.8,
+                                     strata = target
+                                     )
+preprocessing_recipe <- recipes::recipe(target ~ .,
+                                        data = training(ames_split)) %>% prep()
+  # recipes::step_other(all_nominal(), threshold = 0.01) %>%
+  # recipes::step_nzv(all_nominal()) %>%
+#   
+# combine low frequency factor levels
+# remove no variance predictors which provide no predictive information 
+# prep the recipe so it can be used on other data
+
+#--------------------------------------------
+```
+
+
+```{r}
+
+# train_data
+ames_cv_folds <- recipes::bake(preprocessing_recipe,
+                               new_data = training(ames_split)) %>%
+  rsample::vfold_cv(v = 10)
+
+ 
+```
+
+```{r}
+lightgbm_model<- parsnip::boost_tree(mode = "regression",
+                                     trees = tune(),
+                                     min_n = tune(),
+                                     tree_depth = tune(),
+                                     # mtry = tune(),
+                                     learn_rate = tune(),
+                                     # sample_size = tune(),
+                                     stop_iter = 12,
+                                     ) %>%
+  set_engine("lightgbm", 
+             objective = "reg:squarederror",
+             verbose=-1)
+```
+
+```{r}
+lightgbm_params <- dials::parameters(min_n(), 
+                                    tree_depth(),
+                                    trees(),
+                                    # mtry(),
+                                    learn_rate()
+                                    # sample_size()
+                                    )
+
+
+lgbm_grid <- dials::grid_max_entropy(lightgbm_params, size = 10)
+                                # set this to a higher number to get better results
+                                # I don't want to run this all night, so I set it to 30
+
+head(lgbm_grid)
+
+```
+
+```{r}
+lgbm_wf <- workflows::workflow() %>%
+  add_model(lightgbm_model) %>%
+  add_formula(target ~ .)
+
+lgbm_tuned <- tune::tune_grid(object = lgbm_wf,
+                              resamples = ames_cv_folds,
+                              grid = lgbm_grid,
+                              metrics = yardstick::metric_set(yardstick::rmse,
+                                                              yardstick::rsq ,
+                                                              yardstick::mae),
+                              control = tune::control_grid(verbose = T) 
+                              # set this to TRUE to see
+                              # in what step of the process you are. 
+                              # But that doesn't look that well in a blog.
+)
+# rlang::last_error()
+```
+
+
+```{r}
+lgbm_tuned %>% tune::show_best(metric = "mae", n = 5)
+lgbm_best_params <- lgbm_tuned %>% tune::select_best("mae")
+```
+
+```{r}
+# select best hiperparameter found
+# adult_best_params <- select_best(adult_tune_grid, "roc_auc")
+lgbm_wf <- lgbm_wf %>% finalize_workflow(lgbm_best_params)
+
+# last fit
+adult_last_fit <- last_fit(
+  lgbm_wf,
+  ames_split
+)
+
+# metrics
+collect_metrics(adult_last_fit)
+```
+
+```{r}
+# roc curve
+# adult_test_preds <- collect_predictions(adult_last_fit)
+# adult_roc_curve <- adult_test_preds %>% roc_curve(income, `.pred_<=50K`)
+# autoplot(adult_roc_curve)
+```
+
+```{r}
+test_lgbm_tune = test_data[,! names(test_data) %in% c("id")]
+lgbm_out_tuned = predict(adult_last_fit, )
+```
+

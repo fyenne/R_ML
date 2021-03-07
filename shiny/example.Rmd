@@ -1,0 +1,161 @@
+---
+title: "yigexiangmu"
+author: "Siming Yan"
+date: "2/7/2021"
+output: html_document
+runtime: shiny
+---
+
+```{r, include = F}
+library(doParallel)
+all_cores <- parallel::detectCores(logical = FALSE)
+registerDoParallel(cores = all_cores)
+```
+
+```{r, include = F}
+library(shiny)
+# runExample("01_hello")
+library(readxl)
+library(tidyverse)
+# runExample("01_hello")
+```
+
+```{r, include = F}
+grep_exl = grep("xls|xlsx$", list.files(path = "./data"), value = T)
+xlist =  paste("./data/", grep_exl, sep = "")
+All <- lapply(xlist, function(filename){
+    # print(paste("Merging", filename, sep = " "))
+   read_excel(filename, skip = 21, col_names = F)
+})
+df <- do.call(rbind.data.frame, All)
+df[1,1] = "公司类型"
+df[1,]
+colnames(df) = df[1,]
+df = df[-1, ]
+
+df2 = df[,3:dim(df)[2]]
+df2 <- sapply(df2, as.numeric)
+df = cbind(df[,1:2], df2)
+df3 = df %>% na.omit()
+
+
+# for (i in df3$客商名称){ #col
+#     for (j in 3:6){
+#        if (isTRUE(df3[i,j] < 0)){
+#          print(i, names(df3)[j])
+#        }
+#     }
+#     }
+# df3$calculated = round(df3[,3] + df3[,4] - df3[,5] -df3[,6])
+# df3[,3] + df3[,4] - df3[,5]-df3[,6]
+```
+
+
+```{r input, echo = FALSE}
+# selectInput("n_breaks", label = "Number of bins:",
+#               choices = c(10, 20, 35, 50), selected = 20)
+# 
+# sliderInput("bw_adjust", label = "Bandwidth adjustment:",
+#               min = 0.2, max = 2, value = 1, step = 0.2)
+# selectInput("name_of_col", label = "想读取的表格的列名称:",
+#             choices = colnames(df3[,3:9]), selected = colnames(df3)[4])
+ 
+# colnames(df3[,3:9])
+
+
+    
+selectInput("name_of_firm", 
+                label = "公司名称",
+                choices = df3[,2])
+
+```
+ 
+
+```{r render, echo = FALSE}
+ 
+
+renderTable({
+  df3[df3[,2] %in% input$name_of_firm, ]
+})
+
+```
+
+```{r, include = F}
+# renderPlot({
+#   # hist(input$name_of_col,
+#   #      # breaks = as.numeric(input$n_breaks),
+#   #      xlab = "input names of col",
+#   #      main = "Yan siming")
+#   ggplot(data = df3) + aes(x = input$name_of_firm,
+#                            y = input$name_of_col) +
+#     geom_col() + 
+#     geom_text(x = input$name_of_firm,
+#               y = input$name_of_col,
+#               label = input$name_of_col)
+#     # facet_grid(rows = which(df3$客商名称 == input$name_of_firm) %>% as.factor())
+# 
+#   # dens <- density(df3$借方累计, adjust = input$bw_adjust)
+#   # lines(dens, col = "blue")
+# })
+```
+
+```{r, include = F}
+ 
+library(dashCoreComponents)
+packageVersion('dashCoreComponents')
+# 13503537131
+# lgx123456
+```
+
+```{r}
+library(jsonlite)
+library(tidyverse)
+```
+
+```{r}
+# setwd('C:/GDC')
+# setwd('PRAD/mRNA')
+wtsj = read.table("./PRAD_annotation.txt", sep = "\t",fileEncoding="UCS-2LE")
+mingdan=read.table('./PRAD/gdc_manifest_20200926_124534.txt',sep='\t',header=T)
+jym=read.table('./PRAD/name_gene.txt',sep='\t')
+jsondata=read_json('./PRAD/metadata.cart.2020-09-26.json', simplifyVector = FALSE)
+jdzh=matrix(nrow=length(jsondata),ncol=4)
+len
+len=length(jsondata)
+for(i in (1:len) ){
+  jdzh[i,1]=jsondata[[i]][["file_name"]]
+  jdzh[i,2]=jsondata[[i]][["associated_entities"]][[1]][["entity_submitter_id"]]
+  jdzh[i,3]=jsondata[[i]][["file_id"]]
+  jdzh[i,4]=jsondata[[i]][["associated_entities"]][[1]][["case_id"]]
+  }##将
+# mRNA 表达和临床信息结合到一起的线索
+
+write.table(jdzh,'./PRAD/jsondata_compiled.txt',sep='\t')
+n=length(mingdan)
+```
+
+
+```{r}
+for (i in 1:nrow(jdzh)){
+  for (j in 1:nrow(mingdan)){
+    if (jdzh[i,1]==mingdan[j,'filename']){
+      mingdan[j,(n+1)]=as.character(jdzh[i,4])
+      mingdan[j,(n+2)]=as.character(jdzh[i,2])
+}
+}
+}
+ 
+```
+
+```{r}
+options(repos = c(RSM = "https://radiant-rstats.github.io/minicran", 
+                  CRAN = "https://cloud.r-project.org"))
+install.packages("radiant")
+radiant::radiant()
+# attach(jym)
+
+install.packages("ExPanDaR")
+library(ExPanDaR)
+ExPanD(mtcars)
+```
+

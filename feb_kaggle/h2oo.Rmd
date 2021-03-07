@@ -1,0 +1,337 @@
+---
+title: "h2o"
+author: "Siming Yan"
+date: "2/24/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, include = F}
+library(doParallel)
+all_cores <- parallel::detectCores(logical = FALSE)
+registerDoParallel(cores = all_cores)
+```
+
+
+```{r}
+library(h2o)
+library(skimr)
+library(data.table)
+library(dplyr)
+library(recipes)
+library(modelr)
+library(parallel)
+library(mgcv)
+# library(catboost)
+
+library(RCurl)
+library(rjson)
+library(statmod)
+library(survival)
+library(stats)
+library(tools)
+library(utils)
+library(methods)
+ 
+```
+
+```{r}
+# h2o.init()
+# h2o.shutdown(prompt = TRUE)
+
+folds = 10
+te = FALSE 
+teCols = seq(4,5,1)
+catEncoding = "auto"
+```
+
+```{r}
+path = "/Users/fyenne/Downloads/booooks/semester5/tf24/tf24_Folder/tabular-playground-series-feb-2021"
+train = fread(paste(path, "/train.csv", sep = ""), data.table = FALSE) 
+test = fread(paste(path, "/test.csv", sep = ""), data.table = FALSE) 
+id <- test$id
+
+overlaps <- function(i, DF){
+    o <- paste(DF[i, grep("cat", colnames(DF))], collapse = "")
+    return(o)
+}
+
+cluster <- parallel::makeCluster(8)
+
+train$overLap <- parSapply(cl = cluster, 
+                           X = 1:nrow(train), 
+                           FUN = overlaps, 
+                           DF=train) %>% factor()
+
+test$overLap <- parSapply(cl = cluster, 
+                          X = 1:nrow(test), 
+                          FUN = overlaps, 
+                          DF=test) %>% factor(levels=levels(train$overLap))
+
+train <- train[train$overLap %in% test$overLap,]
+
+rec <- train %>% 
+   recipe(~.) %>%
+   step_rm(id, overLap) %>% #General Variable remover
+   step_mutate_at(starts_with("cat"), fn = factor) %>%
+   step_mutate(mean = apply(across(starts_with("cont")), 
+                            #Apply a function (or functions) across multiple columns
+                            MARGIN = 1, 
+                            FUN = mean),
+               cont8square = cont8**2,
+               cont13square = cont13**2
+              ) %>%
+   prep()
+
+x_train <- juice(rec, composition = "data.frame")
+
+#--------------------------------------------
+
+target=rep(0, 200000) %>% data.frame()
+
+x_test_bind = cbind(test, target)
+names(x_test_bind)[27] = "target"
+x_test <- bake(rec, test, composition = "data.frame")
+```
+
+```{r}
+h2o::h2o.init(max_mem_size = "12g")
+# h2o::h2o.shutdown()
+x_train <- x_train %>% 
+    h2o::as.h2o()
+
+x_test <- x_test %>% 
+    h2o::as.h2o()
+```
+
+```{r}
+# if(te == TRUE){
+    x_train$fold <- h2o.kfold_column(x_train, nfolds = 10, seed = 123)
+
+    enco_columns <- paste("cat", teCols, sep = "")
+
+    target_encoder <- h2o.targetencoder(training_frame = x_train,
+    #Transformation of a categorical variable with a mean value of the target variable
+                                        x = enco_columns,
+                                        y = "target",
+                                        fold_column = "fold",
+                                        data_leakage_handling = "KFold",
+                                        blending = TRUE,
+                                        inflection_point = 5,
+                                        smoothing = 4,
+                                        noise = 0.1,
+                                        seed = 123)
+
+    x_train <- h2o.transform(target_encoder, 
+                             x_train, 
+                             as_training=TRUE)
+
+    x_test <- h2o.transform(target_encoder, 
+                            x_test, 
+                            noise=0)
+
+    enco_cols_indexTr <- which(colnames(x_train) %in% c(enco_columns, "fold"))
+    enco_cols_indexTe <- which(colnames(x_test) %in% c(enco_columns))
+
+    x_train <- x_train[,-enco_cols_indexTr]
+    x_test <- x_test[,-enco_cols_indexTe]
+# }
+    
+x_train
+```
+
+## RF
+
+```{r}
+RF <- h2o.randomForest(
+    y = "target",
+    training_frame = x_train,
+    ntrees = 90,
+    max_depth = 17,
+    min_rows = 5,
+    nbins = 20,
+    sample_rate = .7,
+    col_sample_rate_per_tree = .6,
+    stopping_rounds = 5,
+    stopping_metric = "RMSE",
+    nfolds = folds,
+    seed = 1,
+    categorical_encoding = catEncoding,
+    fold_assignment = "Modulo",
+    keep_cross_validation_predictions = TRUE
+)
+
+h2o.performance(
+  RF, # MAE:  0.7153291
+  xval = TRUE
+)
+
+h2o.varimp_plot(
+    RF, 
+    num_of_features = ncol(x_test)
+)
+
+
+# h2o.saveModel(RF, "./h2o_rf.H2OModel")
+```
+
+## gbm
+
+```{r}
+GBM <- h2o.gbm(
+    y = "target",
+    training_frame = x_train,
+    ntrees = 700,
+    max_depth = 5,
+    learn_rate = 0.3,
+    min_rows = 10,
+    learn_rate_annealing = .995,
+    sample_rate = .7,
+    col_sample_rate_per_tree = .5,
+    stopping_rounds = 70,
+    stopping_metric = "RMSE",
+    nfolds = folds,
+    seed = 2,
+    categorical_encoding = catEncoding,
+    fold_assignment = "Modulo",
+    keep_cross_validation_predictions = TRUE
+)
+
+h2o.performance(
+  GBM, #MAE:  0.706449
+  xval = TRUE
+)
+
+h2o.varimp_plot(
+    GBM, 
+    num_of_features = ncol(x_test)
+)
+
+# h2o.saveModel(GBM, "./h2o_gbm.H2OModel")
+# GBM = h2o.loadModel("./tuned_h2o_gbm/mygrid_model_5")
+```
+
+## glm
+
+```{r}
+GLM <- h2o.glm(
+    y = "target",
+    training_frame = x_train,
+    alpha = 0.2,
+    lambda_search = TRUE, 
+    nlambdas = 100, 
+    lambda_min_ratio = .00001,
+    nfolds = folds,
+    standardize = FALSE,
+    seed = 3,
+    fold_assignment = "Modulo",
+    keep_cross_validation_predictions = TRUE,
+    family = "gaussian",
+    intercept = TRUE
+)
+
+h2o.performance(
+  GLM, # 0.7188566
+  xval = TRUE
+)
+
+h2o.saveModel(GLM, "./h2o_GLM")
+```
+
+## XGB
+
+```{r}
+XGB <- h2o.xgboost(
+    y = "target",
+    training_frame = x_train,
+    learn_rate = 0.005,
+    ntrees = 1300,
+    max_depth = 15,
+    col_sample_rate_per_tree = .4,
+    sample_rate = .7,
+    stopping_rounds = 100,
+    stopping_metric = "RMSE",
+    nfolds = folds,
+    reg_lambda = .1,
+    reg_alpha = .5,
+    seed = 4,
+    categorical_encoding = catEncoding,
+    min_child_weight = 300,
+    fold_assignment = "Modulo",
+    keep_cross_validation_predictions = TRUE
+)
+
+h2o.performance(
+  XGB,
+  xval = TRUE
+)
+
+h2o.varimp_plot(
+    XGB, 
+    num_of_features = ncol(x_test)
+)
+```
+
+## Ensemble 
+
+```{r}
+SE <- h2o.stackedEnsemble(
+    y = "target",
+    training_frame = x_train,
+    base_models = list(RF,
+                       GBM,
+                       GLM
+                       # XGB
+                      ),
+    metalearner_algorithm = c("deeplearning"),
+    metalearner_params = list(stopping_metric = "rmse",
+                              stopping_rounds = 4),
+    score_training_samples = 0,
+    seed = 5
+)
+
+h2o.performance(
+  SE # final score : 0.84690
+)
+
+# h2o_gbm
+Pred <- h2o.predict(SE, 
+                newdata = x_test)
+
+Pred <- Pred %>% as.data.frame()
+```
+
+```{r}
+blend = fread("../input/comparative-method-tabular-feb-301/submission3.csv", 
+              data.table = FALSE)
+samSub <- fread("../input/tabular-playground-series-feb-2021/sample_submission.csv", 
+                colClasses = 'character')
+```
+
+```{r}
+samSub$target <- Pred$predict * .01 + blend$target *.99
+
+cat("All ids equal?: ", all.equal(id, samSub$id %>% as.numeric()))
+
+fwrite(samSub, "./submission.csv")
+
+head(samSub)
+```
+
+
+
+```{r}
+path = "/Users/fyenne/Downloads/booooks/semester5/tf24/tf24_Folder/tabular-playground-series-feb-2021"
+sub_path = paste(path, "/sample_submission.csv", sep = "")
+sub = read.csv(file = sub_path)
+```
+
+```{r}
+sub$target = Pred$predict
+write.csv(sub, "./ensemble_h2o.csv", row.names = F)
+```
+

@@ -1,0 +1,278 @@
+---
+title: "kaggle_2_comp"
+author: "Siming Yan"
+date: "2/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+<!-- ## R Markdown -->
+ 
+
+```{r cars}
+library(caret)
+library(tidyverse)
+library(xgboost)
+library("Matrix")
+```
+
+# set up
+
+```{r}
+path = "/Users/fyenne/Downloads/booooks/semester5/tf24/tf24_Folder/tabular-playground-series-feb-2021"
+train_path = paste(path, "/train.csv", sep = "")
+test_path = paste(path, "/test.csv", sep = "")
+sub_path = paste(path, "/sample_submission.csv", sep = "")
+train_data = read.csv(file = train_path)
+test_data = read.csv(file = test_path)
+sub = read.csv(file = sub_path)
+```
+
+ 
+```{r}
+# save copy
+readsCount <- train_data
+readsCount2 = test_data
+#--------------------------------------------
+train_vars = train_data[,! names(train_data) %in% c("target", "id")]
+train_y = train_data$target
+
+test_vars = test_data[,! names(test_data) %in% c("id")]
+#--------------------------------------------
+
+# readsCountSM <- as(as.matrix(train_vars), "dgCMatrix")
+samplesize = 0.75 * nrow(train_vars)
+set.seed(15)
+index = sample(nrow(train_vars),size = samplesize)
+# creating training and test set
+df_train = train_vars[index,]
+df_valid = train_vars[-index,]
+d_train_y = train_y[index]
+d_valid_y = train_y[-index]
+
+paste("cat", c(0:9), sep = "")
+#--------------------------------------------
+library(fastDummies)
+df_train_d = fastDummies::dummy_cols(df_train, 
+                                     select_columns = c(paste("cat", c(0:9), sep = "")))
+
+df_valid_d = fastDummies::dummy_cols(df_valid, 
+                                     select_columns = c(paste("cat", c(0:9), sep = "")))
+
+df_test_d  = fastDummies::dummy_cols(test_vars, 
+                                     select_columns = c(paste("cat", c(0:9), sep = "")))
+
+df_train_d = df_train_d[,!names(df_train_d) %in% c(paste("cat", c(0:9), sep = ""))]
+df_valid_d = df_valid_d[,!names(df_valid_d) %in% c(paste("cat", c(0:9), sep = ""))]
+df_test_d  = df_test_d [,!names(df_test_d ) %in% c(paste("cat", c(0:9), sep = ""))]
+# sparse_matrix_train <- sparse.model.matrix(~.-1, data = df_train )
+# sparse_matrix_valid <- sparse.model.matrix(~.-1, data = df_valid )
+# sparse_matrix_test  <- sparse.model.matrix(~.-1, data = test_vars)
+#--------------------------------------------
+
+names(df_test_d)[which(names(df_test_d) %in% names(df_train_d ) == F)]
+
+
+names(df_train_d)[which(names(df_train_d) %in% names(df_test_d ) == F)]
+# "cat6_G"
+df_train_d = df_train_d[, !names(df_train_d) %in% c("cat6_G")]
+
+names(df_train_d)[which(names(df_train_d) %in% names(df_valid_d) == F)]
+
+df_train_d = df_train_d[, !names(df_train_d) %in% c("cat7_C", "cat7_I")]
+df_test_d  = df_test_d [, !names(df_test_d ) %in% c("cat7_C", "cat7_I")]
+# df_valid_d$cat6_G = 0
+# df_valid_d$cat7_C = 0 
+# df_valid_d$cat7_I = 0
+
+#--------------------------------------------
+
+train_data_xgb = xgb.DMatrix(as(as.matrix(df_train_d), "dgCMatrix"), 
+                             label = d_train_y) # dtrain
+valid_data_xgb = xgb.DMatrix(as(as.matrix(df_valid_d), "dgCMatrix"), 
+                             label = d_valid_y)
+test_data_xgb  = xgb.DMatrix(as(as.matrix(df_test_d ), "dgCMatrix"),
+                             label = rep(0, dim(df_test_d)[1]))
+
+
+```
+ 
+#--------------------------------------------
+# train
+
+```{r}
+watchlist <- list(eval = valid_data_xgb, train = train_data_xgb)
+
+xgb = xgb.train(
+  params = list(max_depth=c(11, 13, 15),
+                eta = c(1e-3, 1e-1, 1),
+                subsample = .5,
+                # lambda = c(.25, .5, .75, 1),
+                # gamma = c(0, 0.25, 0.5),
+                eval_metric = 'mae',
+                # alpha = c(.25, .5, .75, 1),
+                max_bin = 512
+                # n_estimators = c(100, 400, 700, 1000)
+                ),
+  # booster=dart,
+  data = train_data_xgb,
+  nrounds = 150,
+  verbose = 1,
+  print_every_n = 1L,
+  early_stopping_rounds = 20,
+  save_name = "xgboost.model",
+  watchlist
+  # xgb_model = NULL
+)
+
+
+XGB2 = xgb.train(data=train_data_xgb, 
+                  params = list(max_depth=c(7),
+                                eta = c(.21),
+                                subsample = .5,
+                                eval_metric = 'mae',
+                                max_bin = 512
+                                # n_estimators = c(400, 700, 1000)
+                                ),
+                 nrounds = 150,
+                 early_stopping_rounds = 10,
+                 # save_name = "xgboost.model2",
+                 watchlist=watchlist, 
+                 objective = "reg:linear")
+
+
+# params <- list(booster = "dart",
+#                objective = "reg:linear", 
+#                eta=0.3, gamma=0, max_depth=6, min_child_weight=1, subsample=1, colsample_bytree=1)
+```
+
+```{r}
+
+# xgb.train(params = list(max_depth = c(7, 9, 11, 13), eta = 0.22, 
+xgb$best_msg
+# [1] "[150]\teval-mae:0.709621\ttrain-mae:0.654498"
+XGB2$best_msg
+#[1] "[150]\teval-mae:0.709083\ttrain-mae:0.657100"
+
+saveRDS(xgb, file = "./xgb1.rds")
+# XGB2
+```
+
+```{r}
+pred_XGB = predict(xgb, test_data_xgb)
+sub$target =pred_XGB
+
+write.csv(sub, "./submission_R_XGB.csv")
+
+```
+
+#--------------------------------------------
+# visualization
+
+```{r}
+# library(caret)
+# confusionMatrix (xgbpred, ts_label)
+#Accuracy - 86.54%` 
+
+#view variable importance plot
+mat <- xgb.importance (feature_names = colnames(df_train_d),model = XGB2)
+xgb.plot.importance (importance_matrix = mat[1:20]) 
+```
+
+ 
+```{r}
+pred_XGB2 = predict(XGB2, test_data_xgb)
+sub$target = pred_XGB2
+
+# write.csv(sub, "./submission_R_XGB2.csv")
+```
+
+
+#--------------------------------------------
+
+# random/grid search procedure and attempt to find better accuracy
+
+
+```{r}
+#create tasks
+library(mlr)
+
+df_tr_d_search = cbind(df_train_d, d_train_y)
+df_te_d_search = cbind(df_valid_d, d_valid_y)
+traintask <- makeRegrTask(data = df_tr_d_search, target = "d_train_y")
+
+#--------------------------------------------
+validtask <- makeRegrTask(data = df_te_d_search, target = "d_valid_y")
+#--------------------------------------------
+test_target = data.frame(d_train_y = rep(0, dim(df_test_d)[1]))
+df_test_d_search = cbind(df_test_d, test_target)
+testtask <- makeRegrTask(data = df_test_d_search, target = 'd_train_y')
+```
+
+```{r}
+lrn <- makeLearner("regr.xgboost", predict.type = "response")
+lrn$par.vals <- list(objective="reg:linear", eval_metric="mae", nrounds=100L, eta=0.1)
+
+#set parameter space
+params <- makeParamSet(makeDiscreteParam("booster", values = c("gbtree","gblinear")),
+                       makeIntegerParam ("max_depth", lower = 4L,upper = 11L),
+                       makeNumericParam ("min_child_weight", lower = 1L,upper = 10L),
+                       makeNumericParam ("subsample", lower = 0.5,upper = .95),
+                       makeNumericParam ("colsample_bytree", lower = 0.5,upper = 1))
+
+#set resampling strategy
+rdesc <- makeResampleDesc("CV", iters=5L)
+ctrl  <- makeTuneControlRandom(maxit = 10L)
+```
+
+#--------------------------------------------
+## search!
+
+```{r}
+library(parallel)
+library(parallelMap) 
+parallelStartSocket(cpus = detectCores())
+#parameter tuning
+mytune <- tuneParams(learner = lrn, 
+                     task = traintask, 
+                     resampling = rdesc, 
+                     measures = mse, 
+                     par.set = params, 
+                     control = ctrl, show.info = T)
+mytune$y 
+mytune$x
+mytune
+tuned_XGB$properties
+```
+
+```{r}
+lrn_tune <- setHyperPars(lrn, par.vals = mytune$x)
+saveRDS(lrn_tune, "./tuned_XGB.rds")
+#train model
+xgmodel <- train(learner = lrn_tune, task = traintask)
+
+#predict model
+# xgpred_v <- predict(xgmodel, validtask)
+xgpred <- predict(xgmodel, testtask)
+```
+
+```{r}
+# confusionMatrix(xgpred$data$response, xgpred$data$truth)
+```
+
+```{r}
+sub$target = xgpred$data$response
+write.csv(sub, "./submission_R_XGB_tuned.csv")
+```
+
+```{r}
+blend_sub = data.frame(read.csv("./submission_R_XGB_tuned.csv")) * .03 +
+  data.frame(read.csv("./submission3.csv"))* .97
+
+write.csv(blend_sub, "./blend_sub.csv")
+```
+
