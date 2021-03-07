@@ -47,6 +47,7 @@ vignettes/*.pdf
 *.html
 *.xlsx
 *.Rproj
+*.model
 
 
 h2o_GLM/
