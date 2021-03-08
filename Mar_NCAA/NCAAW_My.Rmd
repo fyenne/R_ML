@@ -1,0 +1,145 @@
+---
+title: "NCAAW_my"
+author: "Siming Yan"
+date: "3/8/2021"
+output: html_document
+---
+
+```{r}
+library(caret)
+```
+
+```{r}
+train_data_my  = data_matrix[, features]
+train_label_my = data_matrix$ResultDiff
+
+train_data_my
+
+
+train_label_my = train_label_my %>% data.frame()
+names(train_label_my) = "train_label_my"
+train_label_my = train_label_my %>% mutate(train_label_my =ifelse(train_label_my > 0, 1, 0))
+# train_label_my %>% table
+train_label_my  = train_label_my %>% as.factor()
+# levels(train_label_my) = c("no", "yes")
+# train_label_my
+```
+
+ 
+```{r}
+trControl = trainControl(
+    method = 'cv',
+    number = 10,
+    # summaryFunction = giniSummary,
+    classProbs = TRUE,
+    verboseIter = TRUE,
+    allowParallel = TRUE)
+
+tuneGridXGB <- expand.grid(
+    nrounds = c(450),
+    max_depth = c(4, 6, 9, 12),
+    eta = c(0.02, 0.05, 0.01),
+    gamma = c(0.01, .1, 1, 10),
+    colsample_bytree = c(0.75),
+    subsample = c(0.750),
+    min_child_weight = c(40))
+```
+
+```{r}
+library(doParallel)
+cl <- makePSOCKcluster(8)
+registerDoParallel(cl)
+# save.image("./based_tune_caret.RData")
+```
+
+```{r}
+start <- Sys.time()
+
+# train the xgboost learner
+xgbmod <- train(
+    x = train_data_my,
+    y = train_label_my,
+    method = 'xgbTree',
+    metric = "Accuracy",
+    # metric = 'NormalizedGini',
+    trControl = trControl,
+    tuneGrid = tuneGridXGB,
+    verbose = T)
+
+
+print(Sys.time() - start)
+# xgbmod$bestTune # 50	4	0.05	1	0.75	40	0.75
+
+```
+
+```{r}
+# smooth.spline(x = xgbmod$pred, y = ifelse(data_matrix$ResultDiff > 0, 1, 0))
+```
+
+
+```{r}
+test_my = Z[, features]
+# names(test_my)[!names(test_my) %in% names(train_data_my)]
+# names(train_data_my)[!names(train_data_my) %in% names(test_my)]
+test_my = test_my[, names(train_data_my)]
+names(test_my)
+names(train_data_my)
+```
+
+
+```{r}
+preds <- predict(xgbmod, newdata = test_my, type = "prob")
+
+sub$Pred = preds$yes
+sub = sub[,1:2]
+sub
+write.csv(sub, "./sub_1.csv")
+
+# .3844 top 60
+```
+
+ 
+
+
+
+
+
+## caret tune 2
+
+```{r}
+# input_x <- as.matrix(select(tr_treated, -SalePrice_clean))
+# input_y <- tr_treated$SalePrice_clean
+
+input_x <- as.matrix(caret_tune_dada)
+input_y <- y_train
+```
+
+
+```{r}
+# run with default paras 
+grid_default <- expand.grid(
+  nrounds = 10,
+  max_depth = 6,
+  eta = 0.3,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+train_control <- caret::trainControl(
+  method = "none",
+  verboseIter = F, # no training log
+  allowParallel = TRUE # FALSE for reproducible results 
+)
+
+xgb_base <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = train_control,
+  tuneGrid = grid_default,
+  method = "xgbTree",
+  verbose = TRUE
+)
+ 
+```
