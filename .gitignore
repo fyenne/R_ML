@@ -52,4 +52,4 @@ vignettes/*.pdf
 
 h2o_GLM/
 h2o_rf.H2OModel/
-
+tuned_h2o_gbm/
