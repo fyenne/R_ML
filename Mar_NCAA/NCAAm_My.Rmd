@@ -1,5 +1,5 @@
 ---
-title: "NCAAW_my"
+title: "NCAAm_my"
 author: "Siming Yan"
 date: "3/8/2021"
 output: html_document
@@ -10,17 +10,18 @@ library(caret)
 ```
 
 ```{r}
+ 
 train_data_my  = data_matrix[, features]
 train_label_my = data_matrix$ResultDiff
 
-train_data_my
+
 
 train_label_my = train_label_my %>% data.frame()
 names(train_label_my) = "train_label_my"
-train_label_my = train_label_my %>% mutate(train_label_my =ifelse(train_label_my > 0, 1, 0))
+train_label_my = train_label_my %>% mutate(train_label_my =ifelse(train_label_my > 0, "win", "loss"))
 # train_label_my %>% table
-train_label_my  = train_label_my %>% as.factor()
-# levels(train_label_my) = c("no", "yes")
+train_label_my  = train_label_my$train_label_my %>% as.factor()
+
 # train_label_my
 ```
 
@@ -35,11 +36,11 @@ trControl = trainControl(
     allowParallel = TRUE)
 
 tuneGridXGB <- expand.grid(
-    nrounds = c(450),
-    max_depth = c(4, 6, 9, 12),
+    nrounds = c(450, 500, 750),
+    max_depth = c(4, 6),
     eta = c(0.02, 0.05, 0.01),
-    gamma = c(0.01, .1, 1, 10),
-    colsample_bytree = c(0.75),
+    gamma = c(.1, 1, 10),
+    colsample_bytree = c(0.75, .9),
     subsample = c(0.750),
     min_child_weight = c(40))
 ```
@@ -48,6 +49,7 @@ tuneGridXGB <- expand.grid(
 library(doParallel)
 cl <- makePSOCKcluster(8)
 registerDoParallel(cl)
+# stopCluster(cl)
 # save.image("./based_tune_caret.RData")
 ```
 
@@ -67,7 +69,7 @@ xgbmod <- train(
 
 
 print(Sys.time() - start)
-# xgbmod$bestTune # 50	4	eta$0.05	gamma$1	0.75	40	0.75
+xgbmod$bestTune #500	4	0.05	10	0.9	40	0.75
 
 ```
 
@@ -75,26 +77,41 @@ print(Sys.time() - start)
 # smooth.spline(x = xgbmod$pred, y = ifelse(data_matrix$ResultDiff > 0, 1, 0))
 ```
 
+```{r}
+sub$Season = as.numeric(substring(sub$ID,1,4))
+sub$T1 = as.numeric(substring(sub$ID,6,9))
+sub$T2 = as.numeric(substring(sub$ID,11,14))
+
+Z = sub %>% 
+  left_join(season_summary_X1, by = c("Season", "T1")) %>% 
+  left_join(season_summary_X2, by = c("Season", "T2")) %>%
+  left_join(select(seeds, Season, T1 = TeamID, Seed1 = Seed), by = c("Season", "T1")) %>% 
+  left_join(select(seeds, Season, T2 = TeamID, Seed2 = Seed), by = c("Season", "T2")) %>% 
+  mutate(SeedDiff = Seed1 - Seed2) %>%
+  left_join(select(quality, Season, T1 = Team_Id, quality_march_T1 = quality), by = c("Season", "T1")) %>%
+  left_join(select(quality, Season, T2 = Team_Id, quality_march_T2 = quality), by = c("Season", "T2"))
+```
 
 ```{r}
 test_my = Z[, features]
 # names(test_my)[!names(test_my) %in% names(train_data_my)]
 # names(train_data_my)[!names(train_data_my) %in% names(test_my)]
 test_my = test_my[, names(train_data_my)]
-names(test_my)
-names(train_data_my)
+# names(test_my)
+# names(train_data_my)
 ```
 
 
 ```{r}
 preds <- predict(xgbmod, newdata = test_my, type = "prob")
-
-sub$Pred = preds$yes
-sub = sub[,1:2]
+preds
+sub$Pred = preds$win
+sub = sub[,c(1,3)]
 sub
-write.csv(sub, "./sub_1.csv")
+write.csv(sub, "./sub_m_1.csv")
 
-# .3844 top 60
+# .0.49459 no medal
+
 ```
 
  
