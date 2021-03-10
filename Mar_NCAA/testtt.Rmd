@@ -64,9 +64,9 @@ l3 = strsplit(lines, " ")[[3]]
 (round(3/2) == 3/2)
 ```
 
-# n = lines[1,1]
-n2 = length(setdiff(as.numeric(data.frame(lines)[2, ]) ,as.numeric(data.frame(lines)[3, ])))
-n3 = length(setdiff(as.numeric(data.frame(lines)[3, ]) ,as.numeric(data.frame(lines)[2, ])))
+<!-- # n = lines[1,1] -->
+<!-- n2 = length(setdiff(as.numeric(data.frame(lines)[2, ]) ,as.numeric(data.frame(lines)[3, ]))) -->
+<!-- n3 = length(setdiff(as.numeric(data.frame(lines)[3, ]) ,as.numeric(data.frame(lines)[2, ]))) -->
 
-# data.frame(lines)[2, ]
-cat(n2, n3)
+<!-- # data.frame(lines)[2, ] -->
+<!-- cat(n2, n3) -->
