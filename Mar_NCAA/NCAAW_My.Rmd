@@ -41,7 +41,7 @@ tuneGridXGB <- expand.grid(
     gamma = c(5, 3, 2, 1, .5),
     colsample_bytree = c(0.75, .6, .8),
     subsample = c(0.750, .8),
-    min_child_weight = c(1, 2, 3, 4, 10, 25))
+    min_child_weight = c(5, 3, 7, 10, 17, 25))
 
 # tuneGridXGB <- expand.grid(
 #     nrounds = c(475, 500, 525, 550),
@@ -81,6 +81,8 @@ print(Sys.time() - start)
 # 50	4	eta$0.05	gamma$1	0.75	40	0.75
 # 550	5	0.05	5	0.75	25	0.8
 
+# Selecting tuning parameters
+# Fitting nrounds = 300, max_depth = 4, eta = 0.05, gamma = 2, colsample_bytree = 0.6, min_child_weight = 25, subsample = 0.75 on full training set
 ```
 
 ```{r}
@@ -104,7 +106,7 @@ preds <- predict(xgbmod, newdata = test_my, type = "prob")
 sub$Pred = preds$yes
 sub = sub[,1:2]
 sub
-write.csv(sub, "./sub_1.csv")
+write.csv(sub, "./sub_101.csv", row.names = F)
 
 # .3844 top 60
 ```
