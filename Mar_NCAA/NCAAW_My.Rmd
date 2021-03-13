@@ -35,13 +35,13 @@ trControl = trainControl(
     allowParallel = TRUE)
 
 tuneGridXGB <- expand.grid(
-    nrounds = c(450, 500),
-    max_depth = c(3, 4, 5),
-    eta = c(0.04, 0.05, 0.06),
-    gamma = c(2, 1, .5),
-    colsample_bytree = c(0.75, .6),
+    nrounds = c(300, 450, 500, 550),
+    max_depth = c(3, 4),
+    eta = c(0.045, 0.05, 0.055),
+    gamma = c(5, 3, 2, 1, .5),
+    colsample_bytree = c(0.75, .6, .8),
     subsample = c(0.750, .8),
-    min_child_weight = c(25, 35, 45))
+    min_child_weight = c(1, 2, 3, 4, 10, 25))
 
 # tuneGridXGB <- expand.grid(
 #     nrounds = c(475, 500, 525, 550),
@@ -57,6 +57,7 @@ tuneGridXGB <- expand.grid(
 library(doParallel)
 cl <- makePSOCKcluster(8)
 registerDoParallel(cl)
+# stopCluster(cl)
 # save.image("./based_tune_caret.RData")
 ```
 
@@ -108,48 +109,220 @@ write.csv(sub, "./sub_1.csv")
 # .3844 top 60
 ```
 
- 
-
-
-
-
-
 ## caret tune 2
 
 ```{r}
-# input_x <- as.matrix(select(tr_treated, -SalePrice_clean))
-# input_y <- tr_treated$SalePrice_clean
-
-input_x <- as.matrix(caret_tune_dada)
-input_y <- y_train
+ 
+    # x = train_data_my,
+    # y = train_label_my,
+input_x <- train_data_my
+input_y <- train_label_my
 ```
-
+## 1. Number of Iterations and the Learning Rate
 
 ```{r}
-# run with default paras 
-grid_default <- expand.grid(
-  nrounds = 10,
-  max_depth = 6,
-  eta = 0.3,
+nrounds = 500
+# note to start nrounds from 200, as smaller learning rates result in errors so
+# big with lower starting points that they'll mess the scales
+tune_grid <- expand.grid(
+  nrounds = seq(from = 30, to = nrounds, by = 15),
+  eta = c(0.025, 0.015, 0.035),
+  max_depth = c(3, 4, 5, 6),
   gamma = 0,
   colsample_bytree = 1,
   min_child_weight = 1,
   subsample = 1
 )
 
-train_control <- caret::trainControl(
-  method = "none",
-  verboseIter = F, # no training log
+tune_control <- caret::trainControl(
+  method = "cv", # cross-validation
+  number = 10, # with n folds 
+  #index = createFolds(tr_treated$Id_clean), # fix the folds
+  verboseIter = FALSE, # no training log
   allowParallel = TRUE # FALSE for reproducible results 
 )
 
-xgb_base <- caret::train(
+xgb_tune <- caret::train(
   x = input_x,
   y = input_y,
-  trControl = train_control,
-  tuneGrid = grid_default,
+  trControl = tune_control,
+  tuneGrid = tune_grid,
   method = "xgbTree",
   verbose = TRUE
 )
- 
+```
+
+
+```{r}
+# helper function for the plots
+tuneplot <- function(x, probs = .90) {
+  ggplot(x) +
+    coord_cartesian(ylim = c(quantile(x$results$RMSE, probs = probs), min(x$results$RMSE))) +
+    theme_bw()
+}
+
+tuneplot(xgb_tune)
+xgb_tune$bestTune
+# # 1	50	3	0.025	0	1	1	1
+# 26	405	3	0.015	0	1	1	1
+
+
+```
+
+## 2: Maximum Depth and Minimum Child Weight
+
+```{r}
+tune_grid2 <- expand.grid(
+  nrounds = seq(from = 30, to = nrounds, by = 15),
+  eta = xgb_tune$bestTune$eta,
+  max_depth = ifelse(xgb_tune$bestTune$max_depth == 2,
+    c(xgb_tune$bestTune$max_depth:4),
+    xgb_tune$bestTune$max_depth - 1:xgb_tune$bestTune$max_depth + 1),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = c(1,2,3,4,10,15),
+  # min_child_weight = c(25, 35, 45))
+  subsample = 1
+)
+
+xgb_tune2 <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = tune_grid2,
+  method = "xgbTree",
+  verbose = TRUE
+)
+```
+
+
+```{r}
+tuneplot(xgb_tune2)
+xgb_tune2$bestTune
+```
+
+## 3. Column and Row Sampling
+Based on this, we can fix minimum child weight to 3 and maximum depth to 3. Next, we’ll try different values for row and column sampling:
+
+```{r}
+tune_grid3 <- expand.grid(
+  nrounds = seq(from = 30, to = nrounds, by = 15),
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = 0,
+  colsample_bytree = c(.1, .2, 0.4, 0.6, 0.8, 1.0),
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = c(0.5, 0.75, .90)
+)
+
+xgb_tune3 <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = tune_grid3,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+tuneplot(xgb_tune3, probs = .95)
+```
+
+## 4. Gamma
+
+```{r}
+nrounds = 500
+tune_grid4 <- expand.grid(
+  nrounds = seq(from = 50, to = nrounds, by = 50),
+  eta = xgb_tune$bestTune$eta,
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = c(0, 0.05, 0.1, 0.5, 0.7, 0.9, 1.0),
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+
+xgb_tune4 <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = tune_grid4,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+# tuneplot(xgb_tune4)
+# xgb_tune4$bestTune
+```
+
+## 5: Reducing the Learning Rate
+Now, we have tuned the hyperparameters and can start reducing the learning rate to get to the final model:
+
+```{r}
+tune_grid5 <- expand.grid(
+  nrounds = seq(from = 100, to = 5500, by = 100),
+  eta = c(0.01, 0.015, 0.025, 0.020),
+  max_depth = xgb_tune2$bestTune$max_depth,
+  gamma = xgb_tune4$bestTune$gamma,
+  colsample_bytree = xgb_tune3$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune2$bestTune$min_child_weight,
+  subsample = xgb_tune3$bestTune$subsample
+)
+
+xgb_tune5 <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = tune_grid5,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+# tuneplot(xgb_tune5)
+
+```
+
+## fit the model with best paras
+
+```{r}
+(final_grid <- expand.grid(
+  nrounds = xgb_tune5$bestTune$nrounds,
+  eta = xgb_tune5$bestTune$eta,
+  max_depth = xgb_tune5$bestTune$max_depth,
+  gamma = xgb_tune5$bestTune$gamma,
+  colsample_bytree = xgb_tune5$bestTune$colsample_bytree,
+  min_child_weight = xgb_tune5$bestTune$min_child_weight,
+  subsample = xgb_tune5$bestTune$subsample
+))
+```
+
+```{r}
+(xgb_model <- caret::train(
+  x = input_x,
+  y = input_y,
+  trControl = tune_control,
+  tuneGrid = final_grid,
+  method = "xgbTree",
+  verbose = TRUE
+))
+```
+
+```{r}
+test_my = Z[, features]
+# names(test_my)[!names(test_my) %in% names(train_data_my)]
+# names(train_data_my)[!names(train_data_my) %in% names(test_my)]
+test_my = test_my[, names(train_data_my)]
+# names(test_my)
+# names(train_data_my)
+```
+
+
+```{r}
+preds <- predict(xgb_model, newdata = test_my, type = "prob")
+
+sub$Pred = preds$yes
+sub = sub[,1:2]
+sub
+write.csv(sub, "./sub_w_fi1.csv", row.names = F)
+
+# .3844 top 60
 ```
