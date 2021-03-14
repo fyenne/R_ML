@@ -1,0 +1,247 @@
+---
+title: "rf_caret"
+author: "Siming Yan"
+date: "3/14/2021"
+output: html_document
+---
+```{r}
+xgbmod$results[803,]
+# Accuracy .787301
+ 
+```
+
+```{r}
+library(lightgbm)
+library(Matrix)
+library(tidyverse)
+library(MLmetrics)
+library(data.table)
+    # x = train_data_my,
+    # y = train_label_my,
+
+# levels(train_label_my) = c(0,1)
+# train_label_my
+train_sparse = as.matrix(train_data_my, sparse=TRUE)
+
+lgb.train = lgb.Dataset(data=train_sparse, label=train_label_my)
+# parameters
+lgb.train
+num_iterations <- 100
+#--------------------------------------------
+# train_sparse = Matrix(as.matrix(train_data_my, sparse=TRUE))
+train_label_my = train_label_my %>% as.numeric -1
+
+```
+
+
+```{r}
+# data(agaricus.train, package = "lightgbm")
+# agaricus.train$data %>% class
+# agaricus.train$label %>% class
+# train_sparse %>% class
+
+bst <- lightgbm(data = train_sparse # train_sparse %>% class [1] "matrix" "array" 
+    , label = train_label_my
+    , num_leaves = 4L
+    , learning_rate = 1.0
+    , nrounds = 2L
+    , objective = "binary"
+)
+# runable 
+#--------------------------------------------
+
+# lgb.normalizedgini = function(preds, dtrain){
+#   actual = getinfo(dtrain, "label")
+#   score  = NormalizedGini(preds, actual)
+#   return(list(name = "gini", value = score, higher_better = TRUE))
+# }
+lgb.grid = list(objective = "binary",
+                metric = "accuracy",
+                min_sum_hessian_in_leaf = 1,
+                feature_fraction = 0.7,
+                bagging_fraction = 0.7,
+                bagging_freq = 5)
+                # min_data = 100,
+                # max_bin = 55,
+                # lambda_l1 = 8,
+                # lambda_l2 = 1.3)
+                # min_data_in_bin=100,
+                # min_gain_to_split = 10,
+                # min_data_in_leaf = 30)
+                # is_unbalance = TRUE)
+
+
+lgb.model.cv = lgb.cv(params = lgb.grid,
+                      data = train_sparse
+                      , label = train_label_my
+                      , learning_rate = .015
+                      , num_leaves = 4
+                      , nrounds = 7000
+                      , early_stopping_rounds = 50
+                      , eval_freq = 50, eval = c("binary_error", "binary_logloss"))
+                  # eval = lgb.normalizedgini, nfold = 5, stratified = TRUE)
+    # , eval = c("binary_error", "binary_logloss")
+
+best.iter = lgb.model.cv$best_iter
+best.iter
+# best.iter = 525
+```
+
+```{r}
+# Train final model
+lgb.train = lgb.Dataset(data=train_sparse, label=train_label_my) 
+lgb.model = lgb.cv(params = lgb.grid, data = lgb.train
+                      , learning_rate = 0.02
+                      # , num_leaves = 25
+                      # , num_threads = 2 
+                      , nrounds = best.iter
+                      , eval_freq = 55
+                      , eval = c("binary_error"
+                                 # , "binary_logloss"
+                                 ))
+lgb.model$best_score
+```
+
+```{r}
+
+```
+
+
+# tune lgbm
+
+```{r}
+# data(agaricus.train, package = "lightgbm")
+# train <- agaricus.train
+# dtrain <- lgb.Dataset(train$data, label = train$label, free_raw_data = FALSE)
+# 
+# data(agaricus.test, package = "lightgbm")
+# test <- agaricus.test
+# dtest <- lgb.Dataset.create.valid(dtrain, test$data, label = test$label)
+# 
+# valids <- list(test = dtest)
+```
+
+
+<!-- # lgb.grid = list(objective = "binary", -->
+<!-- #                 # metric = "auc", -->
+<!-- #                 min_sum_hessian_in_leaf = 1, -->
+<!-- #                 feature_fraction = 0.7, -->
+<!-- #                 bagging_fraction = 0.7, -->
+<!-- #                 bagging_freq = 5) -->
+
+<!-- lgb.model.cv = lgb.cv(params = lgb.grid, -->
+<!--                       data = train_sparse -->
+<!--                       , label = train_label_my -->
+<!--                       , learning_rate = .015 -->
+<!--                       , num_leaves = 4 -->
+<!--                       , nrounds = 7000 -->
+<!--                       , early_stopping_rounds = 50 -->
+<!--                       , eval_freq = 50, eval = c("binary_error", "binary_logloss")) -->
+
+```{r}
+grid_search <- expand.grid(max_depth = c(10,20,40,80),
+                           min_data_in_leaf = c(1,2,4),
+                           min_sum_hessian_in_leaf = c(0.05, 0.1, 0.2),
+                           feature_fraction = c(.7, 0.8, 0.9, 0.95),
+                           bagging_fraction = c(0.4, 0.6, .75),
+                           bagging_freq = c(2, 4, 6),
+                           lambda_l1 = c(0.2, 0.4),
+                           lambda_l2 = c(0.2, 0.4),
+                           min_gain_to_split = c(0.2, 0.4),
+                           learning_rate = c(.1, .2, .01, .05))
+
+perf <- numeric(nrow(grid_search))
+
+for (i in 1:nrow(grid_search)) {
+  model <- lgb.cv(list(objective = "binary",
+                          metric = "accuracy",
+                          max_depth = grid_search[i, "max_depth"],
+                          min_data_in_leaf = grid_search[i,"min_data_in_leaf"],
+                          min_sum_hessian_in_leaf = grid_search[i, "min_sum_hessian_in_leaf"],
+                          feature_fraction =  grid_search[i, "feature_fraction"],
+                          bagging_fraction =  grid_search[i, "bagging_fraction"],
+                          bagging_freq =  grid_search[i, "bagging_freq"],
+                          lambda_l1 =  grid_search[i, "lambda_l1"],
+                          lambda_l2 =  grid_search[i, "lambda_l2"],
+                          min_gain_to_split =  grid_search[i, "min_gain_to_split"],
+                          learning_rate = grid_search[i, "learning_rate"])
+                  , data = train_sparse
+                  , label = train_label_my
+                     # , 2,
+                     # valids,
+                  , eval_freq = 50, eval = c("binary_error", "binary_logloss")
+                     #min_data = 1,
+                  , num_leaves = 100
+                  # , learning_rate = 0.015,
+                  , early_stopping_rounds = 14)
+  
+  perf[i] <- min(rbindlist(model$record_evals$valid$binary_error))
+  gc(verbose = T)
+}
+# grid_search
+cat("Model ", which.min(perf), " is lowest loss: ", min(perf), sep = "","\n")
+print(grid_search[which.min(perf), ])
+```
+
+
+```{r}
+grid = grid_search[which.min(perf), ]
+(grid %>% as.list())[1:10]
+lgb.train = lgb.Dataset(data=train_sparse, label=train_label_my)
+# parameters
+# lgb.train
+
+best_lgbm = lgb.train(params = list((grid %>% as.list())[1:10])
+                      , objective = "binary"
+                      , data = lgb.train
+                      , eval_freq = 50, eval = c("binary_error", "binary_logloss")
+                      , num_leaves = 100)
+```
+
+```{r}
+test_my %>% dim
+tests_sparse = as.matrix(test_my, sparse=TRUE)
+tests_sparse
+lgb.tests = lgb.Dataset(data = tests_sparse)
+lgbm_out = predict(best_lgbm, tests_sparse)
+sub$Pred = lgbm_out
+write.csv(sub, "lgbm_raw.csv", row.names = F)
+```
+
+
+
+```{r}
+(grid %>% as.list())[1:10]
+# $max_depth
+# [1] 20
+# $min_data_in_leaf
+# [1] 4
+# $min_sum_hessian_in_leaf
+# [1] 0.05
+# $feature_fraction
+# [1] 0.95
+# $bagging_fraction
+# [1] 0.6
+# $bagging_freq
+# [1] 2
+# $lambda_l1
+# [1] 0.2
+# $lambda_l2
+# [1] 0.2
+# $min_gain_to_split
+# [1] 0.2
+# $learning_rate
+# [1] 0.1
+
+# max_depth = c(30,20,15),
+#                            min_data_in_leaf = c(4, 6, 8, 12),
+#                            min_sum_hessian_in_leaf = c(0.05, 0.1),
+#                            feature_fraction = c(0.75, 0.95),
+#                            bagging_fraction = c(0.6, 0.7),
+#                            bagging_freq = c(2, 3, 7),
+#                            lambda_l1 = c(0.2, 0.1),
+#                            lambda_l2 = c(0.2, 0.1),
+#                            min_gain_to_split = c(0.2, 0.1, .3),
+#                            learning_rate = c(.1, .15),
+#                            num_leaves = c(100, 300, 450, 50))
+```

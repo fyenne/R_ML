@@ -83,6 +83,8 @@ print(Sys.time() - start)
 
 # Selecting tuning parameters
 # Fitting nrounds = 300, max_depth = 4, eta = 0.05, gamma = 2, colsample_bytree = 0.6, min_child_weight = 25, subsample = 0.75 on full training set
+which(row.names(xgbmod$results) == row.names(xgbmod$bestTune) )
+xgbmod$results[803,]
 ```
 
 ```{r}
@@ -109,6 +111,11 @@ sub
 write.csv(sub, "./sub_101.csv", row.names = F)
 
 # .3844 top 60
+blend = read.csv("blend.csv")
+cbind(blend, sub)
+sub2 = sub
+sub2$Pred = blend$Pred * .75 + sub$Pred * .25
+write.csv(sub2, "./sub_102.csv", row.names = F)
 ```
 
 ## caret tune 2

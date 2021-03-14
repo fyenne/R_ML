@@ -8,7 +8,6 @@ output: html_document
 ```{r}
 library(caret)
 mmassey = read.csv("./MMasseyOrdinals.csv")
-
 ```
 
 # messay
@@ -22,10 +21,12 @@ ordinals_df = ordinals_df[ordinals_df$SystemName=="POM", ]
 names(ordinals_df)[2] = "DayNum"
 
 ordinals_df = ordinals_df[,!names(ordinals_df) %in% c("SystemName", "OrdinalRank", "DayNum")]
-names(ordinals_df)[3] = "T1"
+names(ordinals_df)[2] = "T1"
 # ordinals_df %>% names()
 # ordinals_df[ordinals_df$DayNum == 137,]
 data_matrix_ad = merge(data_matrix, ordinals_df, by = c("Season","T1"))
+names(ordinals_df)[2] = "T2"
+data_matrix_ad = merge(data_matrix_ad, ordinals_df, by = c("Season","T2"))
 ```
 
 ```{r}
@@ -41,7 +42,7 @@ names(train_label_my) = "train_label_my"
 train_label_my = train_label_my %>% mutate(train_label_my =ifelse(train_label_my > 0, "win", "loss"))
 # train_label_my %>% table
 train_label_my  = train_label_my$train_label_my %>% as.factor()
-
+train_label_my
 # train_label_my
 ```
  
@@ -55,13 +56,25 @@ trControl = trainControl(
     allowParallel = TRUE)
 
 tuneGridXGB <- expand.grid( #500	3	0.05	5	0.8	25	0.8
-    nrounds = c(475, 500, 525, 550),
+    nrounds = c(475),
     max_depth = c(3, 4), 
-    eta = c(0.045, 0.05, 0.055),
-    gamma = c(4, 5, 7),
-    colsample_bytree = c(.8, .85),
-    subsample = c(0.750, .8),
-    min_child_weight = c(15, 25, 30))
+    eta = c(0.045),
+    gamma = c(3),
+    colsample_bytree = c(.8),
+    subsample = c(0.750),
+    min_child_weight = c(12, 15),
+    rate_drop = c(.2),
+    skip_drop = c(.3))
+
+                  # parameters = data.frame(parameter = c("nrounds",
+                                                        # "max_depth",
+                                                        # "eta",
+                                                        # "gamma",
+                                                        # "subsample",
+                                                        # "colsample_bytree",
+                                                        # "rate_drop",
+                                                        # "skip_drop",
+                                                        # "min_child_weight"),
 ```
 
 ```{r}
@@ -79,7 +92,7 @@ start <- Sys.time()
 xgbmod <- train(
     x = train_data_my,
     y = train_label_my,
-    method = 'xgbTree',
+    method = 'xgbDART',
     metric = "Accuracy",
     # metric = 'NormalizedGini',
     trControl = trControl,
@@ -90,72 +103,44 @@ xgbmod <- train(
 print(Sys.time() - start)
 xgbmod$bestTune #500	4	0.05	10	0.9	40	0.75
 
-# 500	3	0.05	5	0.8	25	0.8
+# 500	3	0.05	5	0.8	25	0.8 # best
 # xgbmod$bestTune 
-```
-## 2: tune rounds
 
-```{r}
-nrounds = 10000
-```
-
-```{r}
-start <- Sys.time()
-tune_grid2 <- expand.grid(
-  nrounds = seq(from = 550, to = nrounds, by = 150),
-  eta = c(0.01, 0.025, 0.045, 0.055),
-  # eta = xgbmod$bestTune$eta,
-  max_depth = xgbmod$bestTune$max_depth,
-  gamma = xgbmod$bestTune$gamma,
-  colsample_bytree = xgbmod$bestTune$colsample_bytree,
-  min_child_weight = xgbmod$bestTune$min_child_weight,
-  subsample = xgbmod$bestTune$subsample
-)
-
-xgbmod2 <- train(
-    x = train_data_my,
-    y = train_label_my,
-    method = 'xgbTree',
-    metric = "Accuracy",
-    # metric = 'NormalizedGini',
-    trControl = trControl,
-    tuneGrid = tune_grid2,
-    verbose = T)
-print(Sys.time() - start)
-# tuneplot(xgb_tune2)
-```
-
-
-```{r}
-start <- Sys.time()
-(final_grid <- expand.grid(
-  nrounds = xgbmod2$bestTune$nrounds,
-  eta = xgbmod2$bestTune$eta,
-  max_depth = xgbmod2$bestTune$max_depth,
-  gamma = xgbmod2$bestTune$gamma,
-  colsample_bytree = xgbmod2$bestTune$colsample_bytree,
-  min_child_weight = xgbmod2$bestTune$min_child_weight,
-  subsample = xgbmod2$bestTune$subsample
-))
-(xgb_model = caret::train(
-    x = train_data_my,
-    y = train_label_my,
-    method = 'xgbTree',
-    metric = "Accuracy",
-    trControl = trControl,
-    tuneGrid = final_grid,
-    verbose = TRUE
-))
-print(Sys.time() - start)
+# unlist(list(xgbmod$bestTune ))
  
+       # 
+       #   nrounds        max_depth              eta            gamma        subsample colsample_bytree 
+       #   475.000            3.000            0.045            3.000            0.750            0.800 
+       # rate_drop        skip_drop min_child_weight 
+       #     0.200            0.300           20.000 
+#--------------------------------------------
+xgbmod$results[order(xgbmod$results$Accuracy, decreasing =T), ]
 ```
+
+
+```{r}
+# as.list(xgbmod$bestTune)
+(final_grid <- expand.grid(as.list(xgbmod$bestTune)
+))
+```
+
+```{r}
+(xgb_model <- caret::train(
+  x = train_data_my,
+  y = train_label_my,
+  trControl = trControl,
+  tuneGrid = final_grid,
+  method = "xgbDART",
+  verbose = TRUE
+))
+ 
+xgb_model$results
+
+```
+
 #--------------------------------------------
 # prediction:
-
-```{r}
-# smooth.spline(x = xgbmod$pred, y = ifelse(data_matrix$ResultDiff > 0, 1, 0))
-```
-
+ 
 ```{r}
 sub$Season = as.numeric(substring(sub$ID,1,4))
 sub$T1 = as.numeric(substring(sub$ID,6,9))
@@ -172,8 +157,13 @@ Z = sub %>%
 ```
 
 ```{r}
+
+names(ordinals_df)[2] = "T1"
 test_my_ad = merge(Z, ordinals_df, by = c("Season","T1"))
+names(ordinals_df)[2] = "T2"
+test_my_ad = merge(test_my_ad, ordinals_df, by = c("Season","T2"))
 test_my_ad = test_my_ad[, features]
+# features
 # names(test_my)[!names(test_my) %in% names(train_data_my)]
 # names(train_data_my)[!names(train_data_my) %in% names(test_my)]
 test_my = test_my_ad[, names(train_data_my)]
@@ -188,9 +178,9 @@ preds
 sub$Pred = preds$win
 sub = sub[,c(1,2)]
 sub
-sub$Pred[sub$Pred <= 0.025] = 0.025
-sub$Pred[sub$Pred >= 0.975] = 0.975
-write.csv(sub, "./sub_m_fi1.csv", row.names = F)
+# sub$Pred[sub$Pred <= 0.025] = 0.025
+# sub$Pred[sub$Pred >= 0.975] = 0.975
+write.csv(sub, "./sub_m_fi_xgbdart.csv", row.names = F)
 
 # .0.49459 no medal
 
@@ -395,14 +385,8 @@ tuneplot(xgb_tune5)
 ## fit the model with best paras
 
 ```{r}
-(final_grid <- expand.grid(
-  nrounds = xgb_tune5$bestTune$nrounds,
-  eta = xgb_tune5$bestTune$eta,
-  max_depth = xgb_tune5$bestTune$max_depth,
-  gamma = xgb_tune5$bestTune$gamma,
-  colsample_bytree = xgb_tune5$bestTune$colsample_bytree,
-  min_child_weight = xgb_tune5$bestTune$min_child_weight,
-  subsample = xgb_tune5$bestTune$subsample
+as.list(xgbmod$bestTune)
+(final_grid <- expand.grid(as.list(xgbmod$bestTune)
 ))
 ```
 
