@@ -16,7 +16,7 @@ library(data.table)
 
 ```{r}
 train_sparse = as.matrix(train_data_my, sparse=TRUE)
-lgb.train = lgb.Dataset(data=train_sparse, label=train_label_my)
+
 # parameters
 
 num_iterations <- 100
@@ -27,36 +27,48 @@ levels(train_label_my) = c(0,1)
 train_label_my = as.numeric(train_label_my) -1
 train_sparse %>% str
 train_label_my %>% str
+lgb.train = lgb.Dataset(data=train_sparse, label=train_label_my)
 ```
 
 ```{r}
- 
-bst <- lightgbm(data = train_sparse # train_sparse %>% class [1] "matrix" "array" 
-    , label = train_label_my
-    , num_leaves = 45L
-    , learning_rate = .8
-    , nrounds = 25L
-    , objective = "binary"
+
+lgb.grid = list(objective = "binary"
+    ,num_boost_round=10000
 )
+# bst <- lightgbm(data = lgb.train # train_sparse %>% class [1] "matrix" "array"  # lgbm data
+#     # , label = train_label_my
+#     , num_leaves = 45L
+#     , learning_rate = .8
+#     , nrounds = 13L
+#     , objective = "binary"
+#     , metric = "binary_error"
+# )
 
+bst <- lgb.cv(
+  params = lgb.grid
+  , data = lgb.train
+  , nfolds = 10, 
+  # , valids = list(val = train,val1 = dval)
+  , lambda_l1 = 9.277442449206187e-06
+  , lambda_l2 = 5.145214812238188e-06
+  , feature_fraction = 0.7
+  , bagging_fraction = 0.6696041270563738
+  , bagging_freq = 3
+  , min_child_samples = 20
+  , learning_rate = 0.02
+  , num_leaves = 43
+  , early_stopping_rounds = 10
+  , eval_freq = 10
+  , num_threads = 16
+  # , boosting = "gbdt"  "rf" "dart"  "goss"
+) 
 
+# bst$best_score
+# tree_imp <- lgb.importance(bst, percentage = TRUE)
+# lgb.plot.importance(tree_imp, top_n = 50, measure = "Gain")
 ```
 
 #--------------------------------------------
-
-```{r}
-grid_search <- expand.grid(max_depth = c(30,20,15),
-                           min_data_in_leaf = c(4, 6, 8, 12),
-                           min_sum_hessian_in_leaf = c(0.05, 0.1),
-                           feature_fraction = c(0.75, 0.95),
-                           bagging_fraction = c(0.6, 0.7),
-                           bagging_freq = c(2, 3, 7, 15),
-                           lambda_l1 = c(0.2, 0.1),
-                           lambda_l2 = c(0.2, 0.1),
-                           min_gain_to_split = c(0.2, 0.1, .3),
-                           learning_rate = c(.1, .15, .05, .2),
-                           num_leaves = c(31, 36, 45))
-```
 
 ```{r}
 library(parallel)
@@ -82,8 +94,8 @@ lgb.grid = list(objective = "binary",
           # learning_rate              num_leaves 
                    # 0.10                   31.00 
 
-lgb.model.cv = lgb.cv(params = lgb.grid,
-                      data = train_sparse
+lgb.model.cv = lgb.cv(params = lgb.grid
+                      , data = train_sparse
                       , label = train_label_my
                       , learning_rate = .01
                       , num_leaves = 31
@@ -92,6 +104,19 @@ lgb.model.cv = lgb.cv(params = lgb.grid,
                       , eval_freq = 20, eval = c("binary_error", "binary_logloss"))
 ```
 
+```{r}
+grid_search <- expand.grid(max_depth = c(30,20,15),
+                           min_data_in_leaf = c(4, 6, 8, 12),
+                           min_sum_hessian_in_leaf = c(0.05, 0.1),
+                           feature_fraction = c(0.75, 0.95),
+                           bagging_fraction = c(0.6, 0.7),
+                           bagging_freq = c(2, 3, 7, 15),
+                           lambda_l1 = c(0.2, 0.1),
+                           lambda_l2 = c(0.2, 0.1),
+                           min_gain_to_split = c(0.2, 0.1, .3),
+                           learning_rate = c(.1, .15, .05, .2),
+                           num_leaves = c(31, 36, 45))
+```
 ```{r}
 perf <- numeric(nrow(grid_search))
 
