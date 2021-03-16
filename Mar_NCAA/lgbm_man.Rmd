@@ -274,4 +274,8 @@ m_fin = man_1
 m_fin$Pred = man_1$Pred *.85 + man_2$Pred * .075 +  man_3$Pred* .075
 write.csv(m_fin, "./sb/sub_man_try1.csv", row.names = F)
 ```
+```{r}
+f <- function (x) (x^2 - 7*x  + 10)
+str(rootSolve::uniroot.all(f, interval = c(-15, 15)))
+```
 
