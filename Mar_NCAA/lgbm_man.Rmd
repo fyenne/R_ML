@@ -279,3 +279,13 @@ f <- function (x) (x^2 - 7*x  + 10)
 str(rootSolve::uniroot.all(f, interval = c(-15, 15)))
 ```
 
+```{r}
+
+# linearHypothesis(model, c("size=0", "expenditure=0"))
+data("mtcars")
+library(car)
+mtcars
+car::Anova()
+Anova(m, test.statistic="F")
+```
+

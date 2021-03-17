@@ -259,10 +259,6 @@ write.csv(select(Z, ID, Pred), "MPred_1.csv", row.names = FALSE)
 #%% md
 
 
-More information here:
-
-https://www.kaggle.com/c/mens-machine-learning-competition-2019/discussion/89150
-
 
 ```
 
