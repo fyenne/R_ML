@@ -117,6 +117,7 @@ grid_search <- expand.grid(max_depth = c(30,20,15),
                            learning_rate = c(.1, .15, .05, .2),
                            num_leaves = c(31, 36, 45))
 ```
+
 ```{r}
 perf <- numeric(nrow(grid_search))
 

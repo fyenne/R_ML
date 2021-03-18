@@ -24,7 +24,7 @@ seeds <- read.csv("./ncaam-march-mania-2021/MNCAATourneySeeds.csv")
 ```
 
 
-```{r setup, include=FALSE}
+```{r}
 #%%
 
 

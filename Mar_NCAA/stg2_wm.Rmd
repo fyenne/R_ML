@@ -1,12 +1,24 @@
-# stage2 W
-regresults <- read.csv("./ncaaw-march-mania-2021_2/WRegularSeasonDetailedResults.csv")
-results <- read.csv("./ncaaw-march-mania-2021_2/WNCAATourneyDetailedResults.csv")
-sub <- read.csv("./ncaaw-march-mania-2021_2/WSampleSubmissionStage2.csv")
-seeds <- read.csv("./ncaaw-march-mania-2021_2/WNCAATourneySeeds.csv")
+---
+title: "stg2_wm"
+author: "Siming Yan"
+date: "3/18/2021"
+output: html_document
+---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+regresults <- read.csv("./ncaaw2-march-mania-2021/WRegularSeasonDetailedResults.csv")
+results <- read.csv("./ncaaw2-march-mania-2021/WNCAATourneyDetailedResults.csv")
+sub2 <- read.csv("./ncaaw2-march-mania-2021/WSampleSubmissionStage2.csv")
+seeds <- read.csv("./ncaaw2-march-mania-2021/WNCAATourneySeeds.csv")
+```
+
+
+```{r cars}
 seeds$Seed = as.numeric(substring(seeds$Seed,2,3))
-
-
 ### Collect regular season results - double the data by swapping team positions
 
 r1 = regresults[, c("Season", "DayNum", "WTeamID", "WScore", "LTeamID", "LScore", "NumOT", "WFGA", "WAst", "WBlk", "LFGA", "LAst", "LBlk")]
@@ -94,3 +106,94 @@ data_matrix =
 
 ### Prepare xgboost 
 features = setdiff(names(data_matrix), c("Season", "DayNum", "T1", "T2", "T1_Points", "T2_Points", "ResultDiff"))
+```
+
+```{r}
+train_data_my  = data_matrix[, features]
+train_label_my = data_matrix$ResultDiff
+
+train_data_my
+
+train_label_my = train_label_my %>% data.frame()
+names(train_label_my) = "train_label_my"
+train_label_my = train_label_my %>% mutate(train_label_my =ifelse(train_label_my > 0, 1, 0))
+# train_label_my %>% table
+train_label_my  = train_label_my$train_label_my %>% as.factor()
+levels(train_label_my) = c("no", "yes")
+# train_label_my
+```
+
+```{r}
+trControl = trainControl(
+    method = 'cv',
+    number = 10,
+    # summaryFunction = giniSummary,
+    classProbs = TRUE,
+    verboseIter = TRUE,
+    allowParallel = TRUE)
+```
+ 
+```{r}
+tuneGridXGB = expand.grid(
+    nrounds = c(300),
+    max_depth = c(4),
+    eta = c(0.05),
+    gamma = c(2),
+    colsample_bytree = c(.6),
+    subsample = c(0.750),
+    min_child_weight = c(25))
+
+xgbmod_2 <- train(
+    x = train_data_my,
+    y = train_label_my,
+    method = 'xgbTree',
+    metric = "Accuracy",
+    # metric = 'NormalizedGini',
+    trControl = trControl,
+    tuneGrid = tuneGridXGB,
+    verbose = T)
+
+xgbmod_2
+```
+
+```{r}
+sub2 <- read.csv("./ncaaw2-march-mania-2021/WSampleSubmissionStage2.csv")
+sub2$Season = as.numeric(substring(sub2$ID,1,4))
+sub2$T1 = as.numeric(substring(sub2$ID,6,9))
+sub2$T2 = as.numeric(substring(sub2$ID,11,14))
+
+
+Z2 = sub2 %>% 
+  left_join(season_summary_X1, by = c("Season", "T1")) %>% 
+  left_join(season_summary_X2, by = c("Season", "T2")) %>%
+  left_join(select(seeds, Season, T1 = TeamID, Seed1 = Seed), by = c("Season", "T1")) %>% 
+  left_join(select(seeds, Season, T2 = TeamID, Seed2 = Seed), by = c("Season", "T2")) %>% 
+  mutate(SeedDiff = Seed1 - Seed2) %>%
+  left_join(select(quality, Season, T1 = Team_Id, quality_march_T1 = quality), by = c("Season", "T1")) %>%
+  left_join(select(quality, Season, T2 = Team_Id, quality_march_T2 = quality), by = c("Season", "T2"))
+
+```
+
+```{r}
+test_my = Z2[, features]
+# names(test_my)[!names(test_my) %in% names(train_data_my)]
+# names(train_data_my)[!names(train_data_my) %in% names(test_my)]
+test_my = test_my[, names(train_data_my)]
+```
+
+```{r}
+preds <- predict(xgbmod_2, newdata = test_my, type = "prob")
+sub2$Pred = preds$yes
+sub2 = sub2[,1:2]
+# sub2
+write.csv(sub2, "./sub_stg2.csv", row.names = F)
+```
+
+
+```{r}
+train_data_my_stg2 = cbind(train_data_my, train_label_my)
+# train_label_my
+write.csv(train_data_my_stg2 , "./sb/train_w_stg2.csv", row.names = F)
+write.csv(test_my , "./sb/test_w_stg2.csv", row.names = F)
+```
+
