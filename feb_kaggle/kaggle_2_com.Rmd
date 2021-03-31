@@ -180,7 +180,7 @@ write.csv(sub, "./submission_R_XGB.csv")
 
 #view variable importance plot
 mat <- xgb.importance (feature_names = colnames(df_train_d),model = XGB2)
-xgb.plot.importance (importance_matrix = mat[1:20]) 
+xgb.plot.importance (importance_matrix = mat[1:20])
 ```
 
  
