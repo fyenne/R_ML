@@ -1,0 +1,74 @@
+---
+title: "Untitled"
+author: "Siming Yan"
+date: "6/6/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# /Users/fyenne/miniforge3/envs/siming/bin/python
+Sys.setenv(RETICULATE_PYTHON = "/Users/fyenne/miniforge3/envs/siming/bin/python")
+reticulate::py_config()
+
+ 
+library(reticulate)
+use_python("/Users/fyenne/miniforge3/envs/siming/bin/python")
+devtools::install_github("rstudio/reticulate")
+
+```
+
+
+
+```{r}
+# This R environment comes with many helpful analytics packages installed
+# It is defined by the kaggle/rstats Docker image: https://github.com/kaggle/docker-rstats
+# For example, here's a helpful package to load
+
+library(tidyverse) # metapackage of all tidyverse packages
+
+# Input data files are available in the read-only "../input/" directory
+# For example, running this (by clicking run or pressing Shift+Enter) will list all files under the input directory
+
+# list.files(path = "../input")
+
+# You can write up to 20GB to the current directory (/kaggle/working/) that gets preserved as output when you create a version using "Save & Run All" 
+# You can also write temporary files to /kaggle/temp/, but they won't be saved outside of the current session
+
+
+# Tensorflow addons:
+# install.packages("tfaddons")
+library(tfaddons)
+tfaddons::install_tfaddons()
+
+# Tensorflow / Keras:
+library(tensorflow)
+library(keras)
+
+# Competition metric similar to the one in Demetry's notebook:
+altloss <- function(y_true, y_pred){
+  y_pred <- k_clip(y_pred, 0.0+10E-15, 1.0-10E-15)
+  k_mean(metric_categorical_crossentropy(y_true,y_pred))
+}
+
+```
+
+```{r}
+# Input:
+train <- read.csv('./tabular-playground-series-jun-2021/train.csv',row.names=1)
+test <- read.csv('./tabular-playground-series-jun-2021/test.csv',row.names=1)
+sample_submission <- read.csv('./tabular-playground-series-jun-2021/sample_submission.csv',row.names=1)
+
+# Get training features matrix:
+xall <- as.matrix(train[,c(1:ncol(train)-1)])
+
+# Get training targets matrix as one-hot-encoding (see section 3.5.2 of the book by Chollet):
+yint <- as.integer(gsub("Class_","",train[,ncol(train)])) - 1
+yohe <- to_categorical(yint)
+
+# Prepare out-of-fold and testing-set predictions:
+yoof <- 0*yohe
+ytest <- matrix(0,nrow(test),ncol(sample_submission),dimnames=list(rownames(test),colnames(sample_submission)))
+```
+
