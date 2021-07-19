@@ -1,0 +1,46 @@
+---
+title: "geo_japan"
+author: "undefined"
+date: "7/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cars}
+library(fmsb)
+library(tidyverse)
+library(stringr)
+library(ggplot2)
+# library(wpp2019)
+```
+
+## obtain data from FMSB package 
+
+```{r}
+df = data.frame(Jpop)
+head(df)
+  
+df = data.frame(t(df))
+names(df) = 0:85
+df = df[-1, ]
+ 
+df$year = sapply(row.names(df), str_extract, "\\d+")
+df$sex = sapply(row.names(df), str_extract, "\\w")
+df[,1:86] = sapply(df[,1:86], as.numeric)
+
+```
+
+```{r}
+
+ 
+df
+df %>% group_by(year)
+
+df %>% group_by(sex)
+
+df %>% group_by(year, sex)
+```
+
