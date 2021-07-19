@@ -35,10 +35,12 @@ df[,1:86] = sapply(df[,1:86], as.numeric)
 
 ## plots 
 ```{r}
-
- 
+df2 = {}
+for (i in 1:56){
+  df2 = append(df2, sum(df[i, 1:86]))
+}
+df$sum = df2
 df
-
 ggplot(df) + aes(x = year, y = sum, group = sex)
 
 aggregate(.~c(df$year), data = df[,1:86] , sum)
